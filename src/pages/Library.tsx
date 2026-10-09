@@ -7,7 +7,9 @@ import { useMusicFolder } from '../lib/useMusicFolder';
 import { displayFileName, filePickerSupported, pickAudioFiles, rememberSessionFile } from '../lib/audioFolder';
 import { formatDuration, formatTime, keyLabel, practiceStreak, weekBuckets } from '../lib/format';
 import { newSong, relativeDay, tileColor } from '../lib/songs';
-import type { Song } from '../lib/store/types';
+import type { Lick, Song } from '../lib/store/types';
+import { dueLicks } from '../features/licks/licks';
+import { dueLabel } from '../features/licks/srs';
 
 const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -16,6 +18,7 @@ export function Library() {
   const songsQ = useAsync(() => store.listSongs(), [store, version]);
   const since = useMemo(() => new Date(Date.now() - 60 * 86_400_000).toISOString(), []);
   const sessionsQ = useAsync(() => store.listSessionsSince(since), [store, version, since]);
+  const licksQ = useAsync(() => store.listLicks(), [store, version]);
   const folder = useMusicFolder();
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
@@ -163,6 +166,8 @@ export function Library() {
             ))}
           </div>
         </section>
+
+        <ReviewCard licks={licksQ.data ?? null} />
       </div>
 
       <section aria-label="내 라이브러리" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -324,6 +329,49 @@ function FolderCard({
       )}
 
       {folder.error && <p style={{ color: 'var(--red)', margin: 0, fontSize: 13 }}>{folder.error}</p>}
+    </section>
+  );
+}
+
+/** 오늘 복습할 릭 — 잊을 때쯤 다시 꺼내 주는 곳 */
+function ReviewCard({ licks }: { licks: Lick[] | null }) {
+  if (!licks) return null;
+  const due = dueLicks(licks);
+  const next = [...licks].sort((a, b) => a.srs.dueAt.localeCompare(b.srs.dueAt))[0];
+  return (
+    <section className={`card${due.length ? ' accent' : ''}`} aria-label="오늘의 복습 릭">
+      <div className="card-head">
+        <h3 className="title-s">오늘의 복습 릭</h3>
+        <Link to="/licks" style={{ fontSize: 14 }}>보관함</Link>
+      </div>
+      {licks.length === 0 ? (
+        <>
+          <p className="muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>
+            카피한 릭을 타브로 적어 두면, 잊을 때쯤 여기서 다시 꺼내 드려요.
+          </p>
+          <Link to="/licks" className="btn sm light" style={{ alignSelf: 'flex-start', marginTop: 'auto' }}>첫 릭 적기</Link>
+        </>
+      ) : due.length === 0 ? (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span className="big-number">0</span>
+            <span className="muted" style={{ fontSize: 13 }}>오늘은 다 했어요</span>
+          </div>
+          <span className="muted" style={{ fontSize: 14, marginTop: 'auto' }}>다음 복습: {next.title} · {dueLabel(next.srs)}</span>
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span className="big-number">{due.length}</span>
+            <span className="muted" style={{ fontSize: 13 }}>개 기다리는 중</span>
+          </div>
+          <span className="muted" style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {due.slice(0, 3).map((l) => l.title).join(' · ')}
+            {due.length > 3 ? ` 외 ${due.length - 3}개` : ''}
+          </span>
+          <Link to="/licks/review" className="btn sm primary" style={{ alignSelf: 'flex-start', marginTop: 'auto' }}>복습 시작</Link>
+        </>
+      )}
     </section>
   );
 }

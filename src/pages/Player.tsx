@@ -27,6 +27,7 @@ import { TUNING_PRESETS } from '../features/tuner/pitch';
 import { analyzeWithEngine, useEngine } from '../lib/engine';
 import { deleteStems, hasStems, loadStem } from '../lib/stemCache';
 import { barAt, parseKey, segmentAt, snapToBeat } from '../lib/theory';
+import { measuresForRange, newLick } from '../features/licks/licks';
 
 type Source = 'original' | 'guitar' | 'no_guitar';
 
@@ -734,6 +735,22 @@ export function Player() {
     setActiveLoopId(loop.id);
     setLoopName('');
   };
+  // 지금 구간을 릭으로: 원곡 구간·속도를 붙여 빈 타브를 만들고 바로 에디터로
+  const saveAsLick = async () => {
+    if (!range || !song) return;
+    const bpm = song.bpm ?? analysis?.bpm ?? null;
+    const lick = newLick({
+      title: loopName.trim() || activeLoop?.name || `${song.title} ${formatTime(range.start)}`,
+      songId: song.id,
+      source: { start: range.start, end: range.end, speed: rate },
+      tuningLabel: song.tuning,
+      bpm,
+      measures: measuresForRange(range.start, range.end, analysis?.downbeats ?? null, bpm),
+    });
+    await store.upsertLick(lick);
+    bump();
+    navigate(`/tabs/${lick.id}`);
+  };
   const updateLoopSpeed = async (l: LoopSection) => {
     const updated = { ...l, speed: rate, start: range?.start ?? l.start, end: range?.end ?? l.end };
     await store.upsertLoop(updated);
@@ -1115,6 +1132,11 @@ export function Player() {
               <input id="loop-name" className="input" placeholder="예: 솔로 1절, 인트로 리프" value={loopName} onChange={(e) => setLoopName(e.target.value)} />
               <button type="submit" className="btn primary">저장</button>
             </form>
+          )}
+          {range && (
+            <button type="button" className="btn sm light" style={{ alignSelf: 'flex-start' }} onClick={saveAsLick} title="이 구간을 듣고 따라 적을 타브를 만들어요">
+              <Icon name="star" size={16} strokeWidth={2} />이 구간을 릭으로
+            </button>
           )}
           {loops.length === 0 ? (
             <p className="muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>

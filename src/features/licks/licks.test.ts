@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allTags, bestBpm, dueLicks, newLick } from './licks';
+import { allTags, bestBpm, dueLicks, measuresForRange, newLick } from './licks';
 import { schedule } from './srs';
 
 describe('릭', () => {
@@ -30,5 +30,21 @@ describe('릭', () => {
     expect(allTags([a, b])).toEqual(['솔로', '스윕']);
     expect(bestBpm(a)).toBe(132);
     expect(bestBpm(b)).toBeNull();
+  });
+});
+
+describe('measuresForRange', () => {
+  const downbeats = [0, 2, 4, 6, 8, 10];
+  it('마디 시작점으로 센다', () => {
+    expect(measuresForRange(2, 6, downbeats, null)).toBe(2);
+    expect(measuresForRange(1.5, 6.05, downbeats, null)).toBe(3);
+  });
+  it('분석이 없으면 BPM으로 어림', () => {
+    expect(measuresForRange(0, 4, null, 120)).toBe(2);
+    expect(measuresForRange(0, 4.1, null, 120)).toBe(2);
+    expect(measuresForRange(0, 0.5, null, null)).toBe(1);
+  });
+  it('1–16마디로 제한', () => {
+    expect(measuresForRange(0, 200, null, 120)).toBe(16);
   });
 });
