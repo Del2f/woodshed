@@ -71,6 +71,8 @@ const STROKE: Record<string, ReactNode> = {
   ),
   check: <path d="M5 12l5 5 9-10" />,
   back: <path d="M15 6l-6 6 6 6" />,
+  forward: <path d="M9 6l6 6-6 6" />,
+  minus: <path d="M5 12h14" />,
   trash: (
     <>
       <path d="M4 7h16M10 11v6M14 11v6" />

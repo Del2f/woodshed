@@ -6,6 +6,14 @@ export function formatTime(sec: number): string {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
+/** 초 → "m:ss.cc" (100분의 1초까지 — 구간 미세 조정용) */
+export function formatTimePrecise(sec: number): string {
+  const s = Number.isFinite(sec) && sec > 0 ? Math.round(sec * 100) / 100 : 0;
+  const m = Math.floor(s / 60);
+  const r = s - m * 60;
+  return `${m}:${r.toFixed(2).padStart(5, '0')}`;
+}
+
 /** 초 → "4시간 50분" / "35분" */
 export function formatDuration(totalSec: number): string {
   const totalMin = Math.round(totalSec / 60);

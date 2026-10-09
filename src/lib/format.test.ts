@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, formatTime, keyLabel, parseTitleFromFileName, practiceStreak, startOfWeek, weekBuckets } from './format';
+import { formatDuration, formatTime, formatTimePrecise, keyLabel, parseTitleFromFileName, practiceStreak, startOfWeek, weekBuckets } from './format';
 
 describe('formatTime / formatDuration', () => {
   it('m:ss', () => {
@@ -45,5 +45,14 @@ describe('주간 통계', () => {
     expect(practiceStreak([s(8), s(9), s(10)], now)).toBe(3);
     expect(practiceStreak([s(8), s(10), s(11)], now)).toBe(2);
     expect(practiceStreak([s(5)], now)).toBe(0);
+  });
+});
+
+describe('formatTimePrecise', () => {
+  it('100분의 1초까지', () => {
+    expect(formatTimePrecise(83.456)).toBe('1:23.46');
+    expect(formatTimePrecise(5.004)).toBe('0:05.00');
+    expect(formatTimePrecise(59.999)).toBe('1:00.00');
+    expect(formatTimePrecise(-1)).toBe('0:00.00');
   });
 });

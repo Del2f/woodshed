@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin, { type Region } from 'wavesurfer.js/dist/plugins/regions.esm.js';
+import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js';
+import MinimapPlugin from 'wavesurfer.js/dist/plugins/minimap.esm.js';
 import { Icon } from '../components/Icon';
 import { Segmented, Switch } from '../components/controls';
 import { useStore } from '../lib/store/StoreProvider';
@@ -15,7 +17,8 @@ import {
   requestFolderAccess,
   resolveSongFile,
 } from '../lib/audioFolder';
-import { formatTime, KEY_OPTIONS, keyLabel, uid } from '../lib/format';
+import { formatTime, formatTimePrecise, KEY_OPTIONS, keyLabel, uid } from '../lib/format';
+import { anchoredScroll, clampZoom, markerStride, nudge, sliderToZoom, zoomToSlider, type NudgeStep } from '../features/player/zoom';
 import { relativeDay, tileColor } from '../lib/songs';
 import { TUNINGS, type LoopSection, type Song, type SongAnalysis } from '../lib/store/types';
 import { clampRate, DEFAULT_TRAINER, MAX_RATE, MIN_RATE, rateAfterLoop, type TrainerConfig } from '../features/player/speedTrainer';
@@ -193,6 +196,17 @@ export function Player() {
   /** 음원을 바꿔 끼울 때(원곡 ↔ 분리 트랙) 이어서 재생할 위치·구간 */
   const resumeRef = useRef<{ time: number; playing: boolean; range: Range | null } | null>(null);
   const restoringRef = useRef(false);
+
+  // ── 확대·축소 ──
+  const minimapEl = useRef<HTMLDivElement>(null);
+  const markersRef = useRef<RegionsPlugin | null>(null);
+  /** 0 = 전체 보기, 그 외 = 1초당 픽셀 */
+  const [zoom, setZoom] = useState(0);
+  const zoomRef = useRef(0);
+  zoomRef.current = zoom;
+  /** 전체 보기일 때의 1초당 픽셀 (창 크기·곡 길이에 따라 바뀜) */
+  const [fitPx, setFitPx] = useState(0);
+  const [nudgeStep, setNudgeStep] = useState<NudgeStep>(0.01);
   loopOnRef.current = loopOn;
   rangeRef.current = range;
   trainerRef.current = trainer;
@@ -254,8 +268,9 @@ export function Player() {
 
   // ── WaveSurfer ──
   useEffect(() => {
-    if (!playUrl || !waveEl.current) return;
+    if (!playUrl || !waveEl.current || !minimapEl.current) return;
     const regions = RegionsPlugin.create();
+    const markers = RegionsPlugin.create(); // 마디선 전용 — 반복 구간과 섞이지 않게 따로
     const ws = WaveSurfer.create({
       container: waveEl.current,
       url: playUrl,
@@ -268,10 +283,32 @@ export function Player() {
       barGap: 2,
       barRadius: 2,
       normalize: true,
-      plugins: [regions],
+      autoScroll: true,
+      autoCenter: true,
+      plugins: [
+        regions,
+        markers,
+        TimelinePlugin.create({
+          height: 18,
+          formatTimeCallback: (s) => (Math.abs(s - Math.round(s)) < 1e-6 ? formatTime(s) : formatTimePrecise(s)),
+          style: { fontSize: '11px', color: '#C7C7CC' },
+        }),
+        MinimapPlugin.create({
+          container: minimapEl.current,
+          height: 36,
+          waveColor: '#8E8E93',
+          progressColor: '#C7C7CC',
+          cursorColor: '#F5F5F7',
+          overlayColor: 'rgba(255, 159, 10, 0.32)',
+          barWidth: 1,
+          barGap: 1,
+          normalize: true,
+        }),
+      ],
     });
     wsRef.current = ws;
     regionsRef.current = regions;
+    markersRef.current = markers;
     const disableDrag = regions.enableDragSelection({ color: REGION_COLOR });
 
     const applyRegion = (r: Region) => setRange({ start: r.start, end: r.end });
@@ -280,6 +317,8 @@ export function Player() {
       setDuration(d);
       setReady(true);
       ws.setPlaybackRate(rateRef.current, true);
+      // 트랙을 바꿔 끼워도 확대 배율 유지
+      if (zoomRef.current > 0) ws.zoom(zoomRef.current);
       const resume = resumeRef.current;
       resumeRef.current = null;
       if (resume) {
@@ -373,6 +412,7 @@ export function Player() {
       ws.destroy();
       wsRef.current = null;
       regionsRef.current = null;
+      markersRef.current = null;
       setReady(false);
       setPlaying(false);
     };
@@ -386,6 +426,119 @@ export function Player() {
   }, []);
 
   const snapT = (t: number) => (snapRef.current && beatsRef.current.length ? snapToBeat(t, beatsRef.current) : t);
+
+  // 전체 보기 배율 = 파형 너비 / 곡 길이. 창 크기가 바뀌면 다시 잰다.
+  useEffect(() => {
+    const el = waveEl.current;
+    if (!el || !duration) return;
+    const measure = () => setFitPx(el.clientWidth / duration);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [duration]);
+
+  /** 배율을 바꾸되 anchorX(파형 안 x 좌표)에 있던 시각은 제자리에 */
+  const applyZoom = useCallback((pxPerSec: number, anchorX?: number) => {
+    const ws = wsRef.current;
+    const el = waveEl.current;
+    const d = ws?.getDuration() ?? 0;
+    if (!ws || !el || !d) return;
+    const width = el.clientWidth;
+    const fit = width / d;
+    const cur = zoomRef.current > 0 ? zoomRef.current : fit;
+    const x = anchorX ?? width / 2;
+    const t = (ws.getScroll() + x) / cur;
+    const next = clampZoom(pxPerSec, fit);
+    const z = next <= fit * 1.001 ? 0 : next;
+    zoomRef.current = z;
+    setZoom(z);
+    ws.zoom(z || fit);
+    ws.setScroll(anchoredScroll(t, x, next));
+  }, []);
+
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const d = wsRef.current?.getDuration() ?? 0;
+      const fit = d && waveEl.current ? waveEl.current.clientWidth / d : 1;
+      applyZoom((zoomRef.current || fit) * factor);
+    },
+    [applyZoom],
+  );
+
+  /** 반복 구간이 화면에 꽉 차게 (여백 7%씩) — 구간이 없으면 전체 보기 */
+  const zoomToLoop = useCallback(() => {
+    const ws = wsRef.current;
+    const el = waveEl.current;
+    const r = rangeRef.current;
+    if (!ws || !el) return;
+    if (!r) {
+      applyZoom(0);
+      return;
+    }
+    const len = r.end - r.start;
+    const next = clampZoom(el.clientWidth / (len * 1.14), el.clientWidth / ws.getDuration());
+    zoomRef.current = next;
+    setZoom(next);
+    ws.zoom(next);
+    ws.setScroll(Math.max(0, (r.start - len * 0.07) * next));
+  }, [applyZoom]);
+
+  // Ctrl(⌘) + 휠, 트랙패드 핀치로 마우스 위치를 중심으로 확대·축소. 그냥 휠은 페이지 스크롤.
+  useEffect(() => {
+    const el = waveEl.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const d = wsRef.current?.getDuration() ?? 0;
+      if (!d) return;
+      const fit = el.clientWidth / d;
+      const x = e.clientX - el.getBoundingClientRect().left;
+      applyZoom((zoomRef.current || fit) * Math.exp(-e.deltaY * 0.004), x);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [applyZoom]);
+
+  // 마디선과 번호 (분석된 곡만). 배율에 따라 번호 간격을 조절한다.
+  const pxPerSec = zoom || fitPx;
+  useEffect(() => {
+    const markers = markersRef.current;
+    if (!markers || !ready) return;
+    markers.clearRegions();
+    const downbeats = analysis?.downbeats ?? [];
+    if (downbeats.length < 2 || !pxPerSec) return;
+    const barSec = (downbeats[downbeats.length - 1] - downbeats[0]) / (downbeats.length - 1);
+    const stride = markerStride(barSec * pxPerSec);
+    downbeats.forEach((t, i) => {
+      const labelled = i % stride === 0;
+      const content = document.createElement('span');
+      content.className = 'bar-label';
+      // 파형은 Shadow DOM 안에 그려져 전역 CSS가 닿지 않으므로 직접 스타일을 준다
+      content.style.cssText =
+        "display:block;padding:2px 4px;font:600 10px 'JetBrains Mono',ui-monospace,monospace;color:#A1A1A6;pointer-events:none;";
+      content.textContent = labelled ? String(i + 1) : '';
+      markers.addRegion({ start: t, color: labelled ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.12)', drag: false, resize: false, content });
+    });
+  }, [ready, analysis?.downbeats, pxPerSec, playUrl]);
+
+  /** 반복 구간의 시작(A)·끝(B)을 한 칸씩 옮긴다 */
+  const nudgeEdge = useCallback(
+    (edge: 'start' | 'end', dir: 1 | -1) => {
+      const region = regionsRef.current?.getRegions()[0];
+      if (!region) return;
+      const d = wsRef.current?.getDuration() ?? Infinity;
+      let start = region.start;
+      let end = region.end;
+      if (edge === 'start') start = Math.min(nudge(start, dir, nudgeStep, beatsRef.current), end - 0.05);
+      else end = Math.min(d, Math.max(nudge(end, dir, nudgeStep, beatsRef.current), start + 0.05));
+      region.setOptions({ start, end });
+      setRange({ start, end });
+      setActiveLoopId(null);
+    },
+    [nudgeStep],
+  );
 
   const loadLoop = useCallback((l: LoopSection) => {
     const regions = regionsRef.current;
@@ -473,11 +626,16 @@ export function Player() {
       else if (k === 'a') markA();
       else if (k === 'b') markB();
       else if (k === 'home' || k === '0') toStart();
-      else return;
+      else if (k === '=' || k === '+') zoomBy(1.6);
+      else if (k === '-' || k === '_') zoomBy(1 / 1.6);
+      else if (k === 'z') {
+        if (zoomRef.current > 0) applyZoom(0);
+        else zoomToLoop();
+      } else return;
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePlay, seekBy, markA, markB, toStart]);
+  }, [togglePlay, seekBy, markA, markB, toStart, zoomBy, applyZoom, zoomToLoop]);
 
   // ── 저장 ──
   const [loopName, setLoopName] = useState('');
@@ -660,7 +818,7 @@ export function Player() {
           </span>
           {range && (
             <span className="mono" style={{ fontSize: 13, color: 'var(--accent-text)' }}>
-              A {formatTime(range.start)} → B {formatTime(range.end)} · {rangeLen.toFixed(1)}초
+              A {formatTimePrecise(range.start)} → B {formatTimePrecise(range.end)} · {rangeLen.toFixed(2)}초
             </span>
           )}
           {pendingStart !== null && !range && (
@@ -673,8 +831,81 @@ export function Player() {
           {fileState === 'ok' && !ready && <p className="muted" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', margin: 0 }}>파형 그리는 중…</p>}
           {fileState === 'loading' && <p className="muted" style={{ margin: 0 }}>음원 찾는 중…</p>}
         </div>
+        {/* 확대했을 때만 보이는 전체 미니맵 — 주황 창을 끌어 보이는 범위를 옮긴다 */}
+        <div className={`minimap${zoom > 0 ? ' open' : ''}`} aria-hidden={zoom === 0}>
+          <div ref={minimapEl} />
+        </div>
+
+        <div className="zoom-bar">
+          <div className="zoom-controls" role="group" aria-label="파형 확대·축소">
+            <button type="button" className="icon-btn" aria-label="축소 (-)" title="축소 (-)" onClick={() => zoomBy(1 / 1.6)} disabled={!ready || zoom === 0}>
+              <Icon name="minus" size={18} strokeWidth={2.2} />
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 120 }}>
+              <span className="sr-only">확대 배율</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={0.5}
+                disabled={!ready || !fitPx}
+                value={fitPx ? zoomToSlider(zoom || fitPx, fitPx) : 0}
+                onChange={(e) => applyZoom(sliderToZoom(Number(e.target.value), fitPx))}
+              />
+            </label>
+            <button type="button" className="icon-btn" aria-label="확대 (+)" title="확대 (+) · Ctrl+휠로도 돼요" onClick={() => zoomBy(1.6)} disabled={!ready}>
+              <Icon name="plus" size={18} strokeWidth={2.2} />
+            </button>
+            <span className="mono muted" style={{ fontSize: 12, width: 48, textAlign: 'right' }}>
+              ×{fitPx ? ((zoom || fitPx) / fitPx).toFixed(zoom && zoom / fitPx < 10 ? 1 : 0) : 1}
+            </span>
+            <button type="button" className="btn sm" onClick={zoomToLoop} disabled={!ready || !range} title="구간에 맞춰 확대 (Z)">
+              구간 확대
+            </button>
+            <button type="button" className="btn sm" onClick={() => applyZoom(0)} disabled={!ready || zoom === 0} title="전체 보기 (Z)">
+              전체 보기
+            </button>
+          </div>
+
+          {range && (
+            <div className="nudge" role="group" aria-label="구간 미세 조정">
+              <span className="nudge-edge">
+                <span className="muted">A</span>
+                <button type="button" className="icon-btn ghost sm" aria-label="시작을 앞으로" onClick={() => nudgeEdge('start', -1)}>
+                  <Icon name="back" size={16} strokeWidth={2.2} />
+                </button>
+                <span className="mono">{formatTimePrecise(range.start)}</span>
+                <button type="button" className="icon-btn ghost sm" aria-label="시작을 뒤로" onClick={() => nudgeEdge('start', 1)}>
+                  <Icon name="forward" size={16} strokeWidth={2.2} />
+                </button>
+              </span>
+              <span className="nudge-edge">
+                <span className="muted">B</span>
+                <button type="button" className="icon-btn ghost sm" aria-label="끝을 앞으로" onClick={() => nudgeEdge('end', -1)}>
+                  <Icon name="back" size={16} strokeWidth={2.2} />
+                </button>
+                <span className="mono">{formatTimePrecise(range.end)}</span>
+                <button type="button" className="icon-btn ghost sm" aria-label="끝을 뒤로" onClick={() => nudgeEdge('end', 1)}>
+                  <Icon name="forward" size={16} strokeWidth={2.2} />
+                </button>
+              </span>
+              <Segmented
+                label="미세 조정 단위"
+                surface
+                value={nudgeStep}
+                onChange={setNudgeStep}
+                options={[
+                  { value: 0.01 as const, label: '0.01초' },
+                  { value: 0.1 as const, label: '0.1초' },
+                  ...(analysis ? [{ value: 'beat' as const, label: '1박' }] : []),
+                ]}
+              />
+            </div>
+          )}
+        </div>
+
         <div className="wave-times">
-          <span>{formatTime(current)}</span>
+          <span>{zoom > 0 ? formatTimePrecise(current) : formatTime(current)}</span>
           <span>
             {bar ? `마디 ${bar} · ` : ''}
             {Math.round(rate * 100)}%
@@ -822,7 +1053,8 @@ export function Player() {
           )}
           <div className="muted" style={{ fontSize: 12, lineHeight: 2, marginTop: 'auto' }}>
             <span className="kbd">Space</span> 재생 · <span className="kbd">A</span> <span className="kbd">B</span> 구간 지정 · <span className="kbd">L</span> 반복 ·{' '}
-            <span className="kbd">←</span> <span className="kbd">→</span> 5초 · <span className="kbd">[</span> <span className="kbd">]</span> 속도
+            <span className="kbd">←</span> <span className="kbd">→</span> 5초 · <span className="kbd">[</span> <span className="kbd">]</span> 속도 ·{' '}
+            <span className="kbd">Ctrl</span>+휠 · <span className="kbd">=</span> <span className="kbd">-</span> 확대·축소 · <span className="kbd">Z</span> 구간 확대
           </div>
         </section>
       </div>
