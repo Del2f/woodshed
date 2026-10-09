@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { BackupFile, DataStore, LoopSection, PracticeSession, Song, SongAnalysis } from './types';
+import type { BackupFile, DataStore, Lick, LoopSection, PracticeSession, Song, SongAnalysis } from './types';
 
 // DB는 snake_case, 앱은 camelCase. user_id는 DB 기본값(auth.uid())과 RLS가 처리한다.
 
@@ -96,6 +96,19 @@ const sessionFromRow = (r: SessionRow): PracticeSession => ({
   durationSec: r.duration_sec,
 });
 
+// 릭은 내용 전체를 jsonb 하나에 담고, 곡 연결(지우면 null)과 복습일만 열로 둔다
+interface LickRow {
+  id: string;
+  song_id: string | null;
+  due_at: string;
+  data: Lick;
+  updated_at: string;
+}
+
+const lickToRow = (l: Lick): LickRow => ({ id: l.id, song_id: l.songId, due_at: l.srs.dueAt, data: l, updated_at: l.updatedAt });
+// 곡을 지우면 DB가 song_id를 비우므로 그 값을 따른다
+const lickFromRow = (r: LickRow): Lick => ({ ...r.data, songId: r.song_id, source: r.song_id ? r.data.source : null });
+
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
   return res.data as T;
@@ -148,6 +161,24 @@ export class SupabaseStore implements DataStore {
     );
   }
 
+  async listLicks(): Promise<Lick[]> {
+    const rows = check<LickRow[]>(await this.sb.from('licks').select('*').order('updated_at', { ascending: false }));
+    return rows.map(lickFromRow);
+  }
+
+  async getLick(id: string): Promise<Lick | null> {
+    const row = check<LickRow | null>(await this.sb.from('licks').select('*').eq('id', id).maybeSingle());
+    return row ? lickFromRow(row) : null;
+  }
+
+  async upsertLick(lick: Lick): Promise<void> {
+    check(await this.sb.from('licks').upsert(lickToRow(lick)));
+  }
+
+  async deleteLick(id: string): Promise<void> {
+    check(await this.sb.from('licks').delete().eq('id', id));
+  }
+
   async addSession(session: PracticeSession): Promise<void> {
     check(await this.sb.from('practice_sessions').upsert(sessionToRow(session)));
   }
@@ -162,6 +193,7 @@ export class SupabaseStore implements DataStore {
     const loops = check<LoopRow[]>(await this.sb.from('loops').select('*'));
     const sessions = check<SessionRow[]>(await this.sb.from('practice_sessions').select('*'));
     const analyses = check<{ data: SongAnalysis }[]>(await this.sb.from('analyses').select('data'));
+    const licks = check<LickRow[]>(await this.sb.from('licks').select('*'));
     return {
       app: 'woodshed',
       version: 1,
@@ -170,6 +202,7 @@ export class SupabaseStore implements DataStore {
       loops: loops.map(loopFromRow),
       sessions: sessions.map(sessionFromRow),
       analyses: analyses.map((a) => a.data),
+      licks: licks.map(lickFromRow),
     };
   }
 
@@ -182,5 +215,7 @@ export class SupabaseStore implements DataStore {
     if (analyses.length) {
       check(await this.sb.from('analyses').upsert(analyses.map((a) => ({ song_id: a.songId, data: a, updated_at: new Date().toISOString() }))));
     }
+    const licks = backup.licks ?? [];
+    if (licks.length) check(await this.sb.from('licks').upsert(licks.map(lickToRow)));
   }
 }

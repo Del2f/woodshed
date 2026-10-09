@@ -7,6 +7,10 @@ import { Tuner } from './pages/Tuner';
 import { Settings } from './pages/Settings';
 import { Engine } from './pages/Engine';
 import { ComingSoon } from './pages/ComingSoon';
+import { Licks } from './pages/Licks';
+import { Review } from './pages/Review';
+import { TabEditor } from './pages/TabEditor';
+import { Tabs } from './pages/Tabs';
 
 export function App() {
   return (
@@ -22,28 +26,10 @@ export function App() {
             <Route path="/tuner" element={<Tuner />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/engine" element={<Engine />} />
-            <Route
-              path="/tabs"
-              element={
-                <ComingSoon
-                  eyebrow="타브 에디터"
-                  title="음원에서 만든 타브를 고치고 저장해요"
-                  version="v0.3"
-                  points={['로컬 분석 엔진이 만든 타브 초안 불러오기', '인식이 불확실한 음 표시와 원곡 비교 재생', '주법 기호 입력, Guitar Pro 가져오기·내보내기']}
-                />
-              }
-            />
-            <Route
-              path="/licks"
-              element={
-                <ComingSoon
-                  eyebrow="릭 보관함"
-                  title="카피한 건, 잊지 않게"
-                  version="v0.3"
-                  points={['플레이어 구간·타브에서 바로 릭으로 저장', '태그·즐겨찾기·BPM 기록', '잊을 때쯤 다시 꺼내 주는 간격 반복 복습']}
-                />
-              }
-            />
+            <Route path="/tabs" element={<Tabs />} />
+            <Route path="/tabs/:lickId" element={<TabEditor />} />
+            <Route path="/licks" element={<Licks />} />
+            <Route path="/licks/review" element={<Review />} />
             <Route
               path="/learn"
               element={

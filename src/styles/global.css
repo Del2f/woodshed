@@ -269,3 +269,49 @@ input[type='range'] { accent-color: var(--accent); width: 100%; }
 .nudge-edge .mono { min-width: 64px; text-align: center; }
 .icon-btn.sm { width: 32px; height: 32px; border-radius: 16px; }
 .icon-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* ── 타브 악보 (v0.3) ─────────────────── */
+.tab-staff { display: flex; flex-wrap: wrap; row-gap: 18px; overflow-x: auto; padding-bottom: 4px; }
+.tab-names { display: flex; flex-direction: column; margin-right: 6px; font-family: var(--mono); font-size: 12px; color: var(--text-4); }
+.tab-names span { display: flex; align-items: center; justify-content: flex-end; min-width: 14px; }
+.tab-num { display: block; height: 18px; font-family: var(--mono); font-size: 11px; color: var(--text-4); padding-left: 4px; }
+.tab-measure { display: flex; flex-direction: column; border-right: 2px solid #636366; }
+.tab-measure:first-of-type, .tab-names + .tab-measure { border-left: 2px solid #636366; }
+.tab-pm-row { display: grid; height: 16px; font-size: 10px; font-weight: 700; color: var(--text-3); font-family: var(--mono); }
+.tab-pm-row span.on { border-top: 1.5px dashed var(--text-4); margin-top: 7px; line-height: 0; }
+.tab-names .tab-pm-row { display: block; }
+.tab-row { display: grid; }
+.tab-cell {
+  position: relative; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer; color: var(--text);
+  background: linear-gradient(#48484a, #48484a) center / 100% 1px no-repeat;
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+}
+.tab-cell.beat { box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.06); }
+.tab-cell b { padding: 0 2px; background: var(--surface); border-radius: 4px; white-space: nowrap; line-height: 18px; }
+.tab-cell.playing { background-color: rgba(10, 132, 255, 0.16); }
+.tab-cell.playing b { background: #12233a; }
+.tab-cell.cursor { outline: 2px solid var(--blue); outline-offset: -2px; border-radius: 4px; background-color: rgba(10, 132, 255, 0.22); }
+.tab-cell.cursor b { background: #0060df; color: #fff; }
+.tab-cell:focus-visible { outline: 2px solid var(--blue); }
+.tab-staff.compact .tab-cell { cursor: default; font-size: 10px; }
+.tab-staff.compact .tab-cell b { background: #0e0e10; padding: 0 1px; line-height: 13px; }
+.tab-staff.compact .tab-pm-row { height: 12px; font-size: 9px; }
+.tab-staff.compact .tab-pm-row span.on { margin-top: 5px; }
+.tab-more { align-self: center; margin-left: 8px; font-size: 12px; color: var(--text-4); }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 8px; background: var(--surface-2); font-size: 12px; font-weight: 600; color: var(--text-3); border: 0; cursor: pointer; }
+.tag-chip:hover { color: var(--text); }
+.tag-chip[aria-pressed='true'] { background: var(--text); color: #000; }
+.lick-card { padding: 20px; border-radius: 22px; background: var(--surface); border: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 14px; min-width: 0; transition: border-color 0.2s, transform 0.25s var(--ease); }
+.lick-card:hover { border-color: rgba(255, 255, 255, 0.16); transform: translateY(-2px); }
+.tab-preview { padding: 10px 8px; border-radius: 14px; background: #0e0e10; overflow: hidden; }
+.tab-preview .tab-cell b { background: #0e0e10; }
+.rating-btn { flex: 1 1 0; min-height: 64px; border-radius: 16px; border: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 16px; font-weight: 700; background: var(--surface-2); color: var(--text); transition: transform 0.15s var(--ease), background 0.2s; }
+.rating-btn:hover { background: var(--surface-3); }
+.rating-btn:active { transform: scale(0.97); }
+.rating-btn small { font-size: 12px; font-weight: 500; color: var(--text-3); }
+.textarea { width: 100%; min-height: 80px; padding: 10px 12px; border-radius: 12px; border: 1px solid transparent; background: var(--surface-3); color: var(--text); font: inherit; font-size: 14px; line-height: 1.6; resize: vertical; outline: none; }
+.textarea:focus { border-color: var(--blue); }
+.title-input { width: 100%; max-width: 640px; margin: 2px 0; padding: 2px 6px; margin-left: -6px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--text); font: inherit; font-size: clamp(24px, 3vw, 32px); font-weight: 700; letter-spacing: -0.03em; outline: none; }
+.title-input:hover { border-color: var(--surface-3); }
+.title-input:focus { border-color: var(--blue); background: var(--surface); }
+.tag-chip:disabled { opacity: 0.4; cursor: default; }

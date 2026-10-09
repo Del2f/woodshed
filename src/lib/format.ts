@@ -88,6 +88,15 @@ export function practiceStreak(sessions: { startedAt: string }[], now: Date): nu
   return streak;
 }
 
+/** UUID v4. 브라우저·Node 20은 crypto.randomUUID, 없는 환경(Node 18 테스트 등)은 같은 형식으로 직접 만든다 */
 export function uid(): string {
-  return crypto.randomUUID();
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (c?.getRandomValues) c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }

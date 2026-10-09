@@ -52,3 +52,29 @@ describe('LocalStore', () => {
     expect((await b.listLoops('x'))[0].name).toBe('인트로');
   });
 });
+
+describe('LocalStore · 릭', () => {
+  it('곡을 지워도 릭은 남고 곡 연결만 풀린다', async () => {
+    const { newLick } = await import('../../features/licks/licks');
+    const st = new LocalStore('t5');
+    await st.upsertSong(song('s', '2026-10-01T00:00:00Z'));
+    const lick = newLick({ title: '하강 런', songId: 's', source: { start: 10, end: 14, speed: 0.8 } });
+    await st.upsertLick(lick);
+    await st.deleteSong('s');
+    const got = await st.getLick(lick.id);
+    expect(got?.title).toBe('하강 런');
+    expect(got?.songId).toBeNull();
+    expect(got?.source).toBeNull();
+  });
+
+  it('백업에 릭이 들어가고 다시 가져와진다', async () => {
+    const { newLick } = await import('../../features/licks/licks');
+    const a = new LocalStore('t6');
+    await a.upsertLick(newLick({ title: '갤럽' }));
+    const backup = await a.exportAll();
+    expect(backup.licks).toHaveLength(1);
+    const b = new LocalStore('t7');
+    await b.importAll(backup);
+    expect((await b.listLicks())[0].title).toBe('갤럽');
+  });
+});

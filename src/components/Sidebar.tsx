@@ -16,8 +16,8 @@ const GROUPS: { label: string; items: Item[] }[] = [
     items: [
       { to: '/', label: '라이브러리', icon: 'library', end: true },
       { to: '/player', label: '플레이어', icon: 'wave' },
-      { to: '/tabs', label: '타브 에디터', icon: 'tab', soon: true },
-      { to: '/licks', label: '릭 보관함', icon: 'star', soon: true },
+      { to: '/tabs', label: '타브 에디터', icon: 'tab' },
+      { to: '/licks', label: '릭 보관함', icon: 'star' },
     ],
   },
   { label: '배우기', items: [{ to: '/learn', label: '이론 커리큘럼', icon: 'book', soon: true }] },

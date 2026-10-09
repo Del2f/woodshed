@@ -1,3 +1,6 @@
+import type { SrsState } from '../../features/licks/srs';
+import type { TabData } from '../../features/tab/model';
+
 export interface Song {
   id: string;
   title: string;
@@ -56,6 +59,26 @@ export interface SongAnalysis {
   stems: string[];
 }
 
+/** 카피한 프레이즈 하나 — 타브 + (있으면) 원곡 구간 + 복습 일정 */
+export interface Lick {
+  id: string;
+  title: string;
+  /** 어느 곡에서 땄는지 (직접 적은 릭이면 null) */
+  songId: string | null;
+  /** 원곡에서의 구간과 저장할 때 속도 */
+  source: { start: number; end: number; speed: number } | null;
+  tags: string[];
+  memo: string;
+  favorite: boolean;
+  tab: TabData;
+  bpmGoal: number | null;
+  /** 연습할 때 친 BPM 기록 */
+  bpmLog: { at: string; bpm: number }[];
+  srs: SrsState;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BackupFile {
   app: 'woodshed';
   version: 1;
@@ -65,6 +88,8 @@ export interface BackupFile {
   sessions: PracticeSession[];
   /** v0.2부터 — 이전 백업에는 없을 수 있다 */
   analyses?: SongAnalysis[];
+  /** v0.3부터 */
+  licks?: Lick[];
 }
 
 export interface DataStore {
@@ -78,6 +103,10 @@ export interface DataStore {
   deleteLoop(id: string): Promise<void>;
   getAnalysis(songId: string): Promise<SongAnalysis | null>;
   saveAnalysis(analysis: SongAnalysis): Promise<void>;
+  listLicks(): Promise<Lick[]>;
+  getLick(id: string): Promise<Lick | null>;
+  upsertLick(lick: Lick): Promise<void>;
+  deleteLick(id: string): Promise<void>;
   addSession(session: PracticeSession): Promise<void>;
   listSessionsSince(iso: string): Promise<PracticeSession[]>;
   exportAll(): Promise<BackupFile>;

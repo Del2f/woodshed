@@ -56,3 +56,12 @@ describe('formatTimePrecise', () => {
     expect(formatTimePrecise(-1)).toBe('0:00.00');
   });
 });
+
+describe('uid', () => {
+  it('UUID v4 형식, 매번 다름', async () => {
+    const { uid } = await import('./format');
+    const a = uid();
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(uid()).not.toBe(a);
+  });
+});

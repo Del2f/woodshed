@@ -1,5 +1,5 @@
 import { createStore, get, set, type UseStore } from 'idb-keyval';
-import type { BackupFile, DataStore, LoopSection, PracticeSession, Song, SongAnalysis } from './types';
+import type { BackupFile, DataStore, Lick, LoopSection, PracticeSession, Song, SongAnalysis } from './types';
 
 type Keyed = { id: string };
 
@@ -48,6 +48,9 @@ export class LocalStore implements DataStore {
     await this.save('songs', (await this.rows<Song>('songs')).filter((s) => s.id !== id));
     await this.save('loops', (await this.rows<LoopSection>('loops')).filter((l) => l.songId !== id));
     await this.save('analyses', (await this.rows<SongAnalysis>('analyses')).filter((a) => a.songId !== id));
+    // 릭은 곡이 없어져도 남긴다 (타브는 그대로 쓸 수 있으니)
+    const licks = await this.rows<Lick>('licks');
+    await this.save('licks', licks.map((l) => (l.songId === id ? { ...l, songId: null, source: null } : l)));
     const sessions = await this.rows<PracticeSession>('sessions');
     await this.save('sessions', sessions.map((s) => (s.songId === id ? { ...s, songId: null } : s)));
   }
@@ -74,6 +77,22 @@ export class LocalStore implements DataStore {
     await this.save('analyses', [...rows, analysis]);
   }
 
+  async listLicks(): Promise<Lick[]> {
+    return (await this.rows<Lick>('licks')).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async getLick(id: string): Promise<Lick | null> {
+    return (await this.rows<Lick>('licks')).find((l) => l.id === id) ?? null;
+  }
+
+  async upsertLick(lick: Lick): Promise<void> {
+    await this.save('licks', upsertById(await this.rows<Lick>('licks'), lick));
+  }
+
+  async deleteLick(id: string): Promise<void> {
+    await this.save('licks', (await this.rows<Lick>('licks')).filter((l) => l.id !== id));
+  }
+
   async addSession(session: PracticeSession): Promise<void> {
     await this.save('sessions', upsertById(await this.rows<PracticeSession>('sessions'), session));
   }
@@ -91,6 +110,7 @@ export class LocalStore implements DataStore {
       loops: await this.rows<LoopSection>('loops'),
       sessions: await this.rows<PracticeSession>('sessions'),
       analyses: await this.rows<SongAnalysis>('analyses'),
+      licks: await this.rows<Lick>('licks'),
     };
   }
 
@@ -105,5 +125,8 @@ export class LocalStore implements DataStore {
     await this.save('loops', loops);
     await this.save('sessions', sessions);
     for (const a of backup.analyses ?? []) await this.saveAnalysis(a);
+    let licks = await this.rows<Lick>('licks');
+    for (const l of backup.licks ?? []) licks = upsertById(licks, l);
+    await this.save('licks', licks);
   }
 }
