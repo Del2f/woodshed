@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Callable
 
@@ -227,8 +228,14 @@ def extend_backward(times: np.ndarray, tolerance: float = 0.25) -> np.ndarray:
 
 
 def estimate_tuning(y: np.ndarray, sr: int) -> float:
-    """곡 전체의 튜닝 오차(반음 단위, -0.5~0.5). 크롬마와 베이스가 같은 기준을 쓰게 한다."""
-    t = float(librosa.estimate_tuning(y=y, sr=sr, bins_per_octave=36))
+    """곡 전체의 튜닝 오차(반음 단위, -0.5~0.5). 크롬마와 베이스가 같은 기준을 쓰게 한다.
+
+    잴 만한 음이 없는 구간이 있으면 librosa가 'empty frequency set' 경고를 내고 0을 돌려준다.
+    표준 튜닝으로 보고 넘어가면 되는 일이라 경고는 엔진 창에 띄우지 않는다.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Trying to estimate tuning")
+        t = float(librosa.estimate_tuning(y=y, sr=sr, bins_per_octave=36))
     return t if np.isfinite(t) else 0.0
 
 
