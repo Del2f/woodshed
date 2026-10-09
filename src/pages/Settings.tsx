@@ -4,6 +4,7 @@ import { useStore } from '../lib/store/StoreProvider';
 import { useAsync } from '../lib/useAsync';
 import { useMusicFolder } from '../lib/useMusicFolder';
 import { isBackupFile } from '../lib/store/types';
+import { clearStemCache, stemCacheUsage } from '../lib/stemCache';
 
 export function Settings() {
   const { store, supabase, session, localStore, version, bump } = useStore();
@@ -13,6 +14,7 @@ export function Settings() {
   const [busy, setBusy] = useState(false);
   const localQ = useAsync(() => localStore.exportAll(), [localStore, version]);
   const localCount = localQ.data ? localQ.data.songs.length : 0;
+  const stemsQ = useAsync(() => stemCacheUsage(), []);
   const cloud = store.kind === 'supabase';
 
   const run = async (fn: () => Promise<string>) => {
@@ -192,6 +194,35 @@ export function Settings() {
             <input type="file" accept="application/json,.json" hidden onChange={importBackup} />
           </label>
         </div>
+      </section>
+
+      <section className="card lg">
+        <div className="card-head">
+          <h2 className="title-s">분리 트랙 저장 공간</h2>
+          {stemsQ.data && (
+            <span className="muted" style={{ fontSize: 13 }}>
+              트랙 {stemsQ.data.count}개 · {(stemsQ.data.bytes / 1024 / 1024).toFixed(0)}MB
+            </span>
+          )}
+        </div>
+        <p className="lead" style={{ fontSize: 14 }}>
+          기타만·기타 빼고 트랙은 이 브라우저에 저장해 두고 재생해요. 그래서 재생할 때는 분석 엔진이 필요 없어요. 비우면 다음에 고를 때 엔진에서 다시 받아요(엔진 쪽 원본은 그대로예요).
+        </p>
+        <button
+          type="button"
+          className="btn"
+          style={{ alignSelf: 'flex-start' }}
+          disabled={busy || !stemsQ.data?.count}
+          onClick={() =>
+            run(async () => {
+              await clearStemCache();
+              stemsQ.reload();
+              return '저장해 둔 분리 트랙을 비웠어요.';
+            })
+          }
+        >
+          비우기
+        </button>
       </section>
 
       <p className="muted" style={{ fontSize: 12, margin: 0 }}>Woodshed v{__APP_VERSION__}</p>

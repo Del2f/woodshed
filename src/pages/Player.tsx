@@ -24,7 +24,8 @@ import { TUNINGS, type LoopSection, type Song, type SongAnalysis } from '../lib/
 import { clampRate, DEFAULT_TRAINER, MAX_RATE, MIN_RATE, rateAfterLoop, type TrainerConfig } from '../features/player/speedTrainer';
 import { AnalyzeCard, ChordFlow, ChordNow } from '../features/analysis/AnalysisPanels';
 import { TUNING_PRESETS } from '../features/tuner/pitch';
-import { analyzeWithEngine, stemUrl, useEngine } from '../lib/engine';
+import { analyzeWithEngine, useEngine } from '../lib/engine';
+import { deleteStems, hasStems, loadStem } from '../lib/stemCache';
 import { barAt, parseKey, segmentAt, snapToBeat } from '../lib/theory';
 
 type Source = 'original' | 'guitar' | 'no_guitar';
@@ -167,7 +168,12 @@ export function Player() {
   useEffect(() => () => {
     if (fileUrl) URL.revokeObjectURL(fileUrl);
   }, [fileUrl]);
-  const playUrl = source !== 'original' && analysis?.stems.includes(source) ? stemUrl(analysis.fileHash, source) : fileUrl;
+  /** 브라우저에 저장해 둔 분리 트랙 (blob URL). 재생 중에는 엔진과 통신하지 않는다. */
+  const [stemSrc, setStemSrc] = useState<{ key: string; url: string } | null>(null);
+  const [stemProgress, setStemProgress] = useState<number | null>(null);
+  const stemKey = source !== 'original' && analysis ? `${analysis.fileHash}/${source}` : null;
+  // 분리 트랙을 받는 동안에는 원곡을 계속 틀어 두고, 준비되면 그 순간의 위치에서 바꿔 끼운다
+  const playUrl = stemKey && stemSrc?.key === stemKey ? stemSrc.url : fileUrl;
 
   // ── 재생 상태 ──
   const waveEl = useRef<HTMLDivElement>(null);
@@ -418,11 +424,84 @@ export function Player() {
     };
   }, [playUrl, fileUrl, onLoopComplete, flushPractice]);
 
-  const switchSource = useCallback((next: Source) => {
+  const captureResume = useCallback(() => {
     const ws = wsRef.current;
     resumeRef.current = { time: ws?.getCurrentTime() ?? 0, playing: ws?.isPlaying() ?? false, range: rangeRef.current };
-    setSourceError(null);
-    setSource(next);
+  }, []);
+
+  const switchSource = useCallback(
+    (next: Source) => {
+      setSourceError(null);
+      // 원곡으로는 바로 바꾼다. 분리 트랙은 준비된 순간(아래 effect)에 위치를 잡는다.
+      if (next === 'original') captureResume();
+      setSource(next);
+    },
+    [captureResume],
+  );
+
+  // 분리 트랙: 브라우저에 저장돼 있으면 바로, 없으면 엔진에서 한 번 받아 저장한 뒤 재생
+  useEffect(() => {
+    if (!stemKey || !analysis || source === 'original' || stemSrc?.key === stemKey) return;
+    let alive = true;
+    setStemProgress(0);
+    loadStem(analysis.fileHash, source, (p) => alive && setStemProgress(p))
+      .then((blob) => {
+        if (!alive) return;
+        captureResume();
+        const url = URL.createObjectURL(blob);
+        setStemSrc((prev) => {
+          // 이전 트랙은 새 트랙으로 바뀐 뒤에 정리 (재생 중인 주소를 바로 지우면 소리가 끊긴다)
+          if (prev) setTimeout(() => URL.revokeObjectURL(prev.url), 3000);
+          return { key: stemKey, url };
+        });
+        setStemProgress(null);
+      })
+      .catch((e: unknown) => {
+        if (!alive) return;
+        setStemProgress(null);
+        setSourceError(
+          e instanceof TypeError
+            ? '분리 트랙이 아직 이 브라우저에 없어요. 처음 한 번은 분석 엔진을 켜 둔 상태에서 받아야 해요.'
+            : e instanceof Error
+              ? e.message
+              : String(e),
+        );
+        setSource('original');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [stemKey, source, analysis, stemSrc?.key, captureResume]);
+
+  // 분석에 분리 트랙이 있으면 미리 받아 둔다 — 엔진을 꺼도 기타만·기타 빼고를 들을 수 있게
+  const [stemsSaved, setStemsSaved] = useState(false);
+  useEffect(() => {
+    const a = analysis;
+    if (!a?.stems.length) return;
+    let alive = true;
+    (async () => {
+      if (await hasStems(a.fileHash, a.stems)) {
+        if (alive) setStemsSaved(true);
+        return;
+      }
+      if (!engine.online) return;
+      try {
+        for (const name of a.stems) await loadStem(a.fileHash, name);
+        if (alive) setStemsSaved(true);
+      } catch {
+        /* 실제로 고를 때 다시 시도하고 그때 오류를 보여 준다 */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [analysis, engine.online]);
+
+  // 떠날 때 blob 주소 정리
+  const stemSrcRef = useRef(stemSrc);
+  stemSrcRef.current = stemSrc;
+  useEffect(() => () => {
+    if (stemSrcRef.current) URL.revokeObjectURL(stemSrcRef.current.url);
   }, []);
 
   const snapT = (t: number) => (snapRef.current && beatsRef.current.length ? snapToBeat(t, beatsRef.current) : t);
@@ -679,6 +758,7 @@ export function Player() {
     if (!song || !confirm(`‘${song.title}’을(를) 라이브러리에서 뺄까요?\n저장한 구간도 함께 삭제됩니다. 음원 파일은 지워지지 않아요.`)) return;
     await store.deleteSong(song.id);
     await forgetSongFile(song.fileName);
+    if (analysis) await deleteStems(analysis.fileHash);
     bump();
     navigate('/');
   };
@@ -792,17 +872,28 @@ export function Player() {
         {analysis && (
           <div className="card-head" style={{ alignItems: 'center' }}>
             {analysis.stems.length > 0 ? (
-              <Segmented
-                label="들을 트랙"
-                surface
-                value={source}
-                onChange={switchSource}
-                options={[
-                  { value: 'original', label: '원곡' },
-                  { value: 'guitar', label: '기타만' },
-                  { value: 'no_guitar', label: '기타 빼고' },
-                ]}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Segmented
+                  label="들을 트랙"
+                  surface
+                  value={source}
+                  onChange={switchSource}
+                  options={[
+                    { value: 'original', label: '원곡' },
+                    { value: 'guitar', label: '기타만' },
+                    { value: 'no_guitar', label: '기타 빼고' },
+                  ]}
+                />
+                <span className="muted" role="status" style={{ fontSize: 12 }}>
+                  {stemProgress !== null
+                    ? `분리 트랙 받는 중 ${Math.round(stemProgress * 100)}% — 그동안 원곡이 재생돼요`
+                    : stemsSaved
+                      ? '분리 트랙이 이 브라우저에 저장돼 있어요 (엔진 없이 재생)'
+                      : engine.online
+                        ? '분리 트랙 저장 중…'
+                        : '처음 한 번은 엔진을 켜고 받아야 해요'}
+                </span>
+              </div>
             ) : (
               <span className="muted" style={{ fontSize: 13 }}>기타 분리를 켜고 다시 분석하면 기타만·기타 빼고 들을 수 있어요</span>
             )}
