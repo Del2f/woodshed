@@ -119,6 +119,18 @@ export class SupabaseStore implements DataStore {
 
   constructor(private sb: SupabaseClient) {}
 
+  /** 표 전체 — Supabase는 한 번에 최대 1000행만 돌려주므로 나눠서 받는다 */
+  private async selectAll<T>(table: string, columns: string, orderBy: string): Promise<T[]> {
+    const PAGE = 1000;
+    const out: T[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const res = await this.sb.from(table).select(columns).order(orderBy).range(from, from + PAGE - 1);
+      const rows = check(res) as unknown as T[];
+      out.push(...rows);
+      if (rows.length < PAGE) return out;
+    }
+  }
+
   async listSongs(): Promise<Song[]> {
     const rows = check<SongRow[]>(await this.sb.from('songs').select('*').order('created_at', { ascending: false }));
     return rows.map(songFromRow);
@@ -189,11 +201,11 @@ export class SupabaseStore implements DataStore {
   }
 
   async exportAll(): Promise<BackupFile> {
-    const songs = check<SongRow[]>(await this.sb.from('songs').select('*'));
-    const loops = check<LoopRow[]>(await this.sb.from('loops').select('*'));
-    const sessions = check<SessionRow[]>(await this.sb.from('practice_sessions').select('*'));
-    const analyses = check<{ data: SongAnalysis }[]>(await this.sb.from('analyses').select('data'));
-    const licks = check<LickRow[]>(await this.sb.from('licks').select('*'));
+    const songs = await this.selectAll<SongRow>('songs', '*', 'id');
+    const loops = await this.selectAll<LoopRow>('loops', '*', 'id');
+    const sessions = await this.selectAll<SessionRow>('practice_sessions', '*', 'id');
+    const analyses = await this.selectAll<{ data: SongAnalysis }>('analyses', 'data', 'song_id');
+    const licks = await this.selectAll<LickRow>('licks', '*', 'id');
     return {
       app: 'woodshed',
       version: 1,
