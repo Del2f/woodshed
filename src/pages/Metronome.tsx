@@ -70,7 +70,7 @@ export function Metronome() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
+      const el = e.target instanceof HTMLElement ? e.target : document.body;
       if (el.closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === ' ' && !el.closest('button')) {
         e.preventDefault();

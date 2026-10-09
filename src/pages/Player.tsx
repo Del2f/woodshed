@@ -268,6 +268,14 @@ export function Player() {
       }
       if (p.accum >= CHUNK_SESSION) flushPractice();
     });
+    // 구간 끝이 곡 끝과 겹치면 timeupdate보다 finish가 먼저 와서 재생이 멈춘다
+    ws.on('finish', () => {
+      const r = rangeRef.current;
+      if (!loopOnRef.current || !r) return;
+      ws.setTime(r.start);
+      ws.play();
+      onLoopComplete();
+    });
 
     regions.on('region-created', (r) => {
       regions.getRegions().forEach((o) => o !== r && o.remove());
@@ -367,7 +375,7 @@ export function Player() {
   // 키보드 단축키
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
+      const el = e.target instanceof HTMLElement ? e.target : document.body;
       if (el.closest('input, select, textarea, [contenteditable="true"]') || e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
       if (k === ' ') {
@@ -567,7 +575,16 @@ export function Player() {
                     : '구간을 반복할 때마다 조금씩 빨라져요'}
                 </span>
               </div>
-              <Switch label="스피드 트레이너" checked={trainer.enabled} onChange={(v) => setTrainer((t) => ({ ...t, enabled: v }))} />
+              <Switch
+                label="스피드 트레이너"
+                checked={trainer.enabled}
+                onChange={(v) => {
+                  // 켜는 순간부터 반복 횟수를 다시 센다
+                  loopCountRef.current = 0;
+                  setLoopCount(0);
+                  setTrainer((t) => ({ ...t, enabled: v }));
+                }}
+              />
             </div>
             {trainer.enabled && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
