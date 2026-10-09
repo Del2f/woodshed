@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse
 
 from . import ANALYSIS_VERSION, __version__, separation
 from .analysis import analyze
+from .audio_io import decode_to_wav
 
 CACHE_DIR = Path(os.environ.get("WOODSHED_CACHE", Path.home() / ".woodshed" / "cache"))
 MAX_UPLOAD = 400 * 1024 * 1024  # 400MB
@@ -102,17 +103,21 @@ def _run(job: Job, audio: Path) -> None:
         job.step, job.progress = step, p
 
     job.status = "running"
+    decoded = audio.with_name(f"{audio.stem}.decoded.wav")
     try:
         result_path, stem_dir = _paths(job.file_hash)
         stems: list[str] = []
         bass_path: str | None = None
+        # MP3·M4A는 디코더마다 읽히는 정도가 달라서, 먼저 한 번 WAV로 풀고 분리·분석 모두 그 파일을 쓴다
+        report("음원 여는 중", 0.02)
+        wav = decode_to_wav(audio, decoded)
         if job.separate:
             # 분리를 먼저 하면 '기타 뺀 트랙'의 베이스로 근음을 찾을 수 있다 — 디스토션에 훨씬 강하다
             report("기타 트랙 분리 중 (GPU가 있으면 빨라요)", 0.05)
-            produced = separation.separate_guitar(audio, stem_dir)
+            produced = separation.separate_guitar(wav, stem_dir)
             stems = list(separation.STEMS)
             bass_path = str(produced["no_guitar"])
-        result = analyze(str(audio), lambda step, p: report(step, 0.5 + p * 0.5) if job.separate else report(step, p), bass_path)
+        result = analyze(str(wav), lambda step, p: report(step, 0.5 + p * 0.5) if job.separate else report(step, p), bass_path)
         data = {
             "version": ANALYSIS_VERSION,
             "engineVersion": __version__,
@@ -129,11 +134,12 @@ def _run(job: Job, audio: Path) -> None:
         traceback.print_exc()
         job.status, job.error = "error", str(e) or e.__class__.__name__
     finally:
-        # 분석이 끝나면 업로드 사본은 지운다 (분리 트랙과 결과 JSON만 남김)
-        try:
-            audio.unlink(missing_ok=True)
-        except OSError:
-            pass
+        # 분석이 끝나면 업로드 사본과 풀어 둔 WAV는 지운다 (분리 트랙과 결과 JSON만 남김)
+        for f in (audio, decoded):
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 @app.get("/health")

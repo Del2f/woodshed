@@ -83,3 +83,22 @@ def test_cors_rejects_other_sites(client):
 def test_stem_path_is_validated(client):
     assert client.get("/stems/../../etc/guitar").status_code == 404
     assert client.get(f"/stems/{'a' * 40}/vocals").status_code == 404
+
+
+def test_m4a_upload_is_analyzed(client, tmp_path):
+    """libsndfile이 못 여는 M4A도 분석된다 (업로드 → WAV로 풀어서 분석)"""
+    from test_audio_io import encode, tone
+
+    path = tmp_path / "song.m4a"
+    encode(path, tone(5.0), 44100, "aac", "mp4")
+    job = client.post("/analyze", files={"file": ("song.m4a", path.read_bytes(), "audio/mp4")}).json()
+    done = wait_done(client, job["id"])
+    assert done["status"] == "done", done["error"]
+    assert done["result"]["duration"] == pytest.approx(5.0, abs=0.1)
+
+
+def test_broken_upload_reports_friendly_error(client):
+    job = client.post("/analyze", files={"file": ("broken.mp3", b"not audio at all" * 200, "audio/mpeg")}).json()
+    done = wait_done(client, job["id"])
+    assert done["status"] == "error"
+    assert "읽지 못했어요" in done["error"]

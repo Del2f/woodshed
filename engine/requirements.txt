@@ -6,6 +6,8 @@ numpy>=1.26,<3
 scipy>=1.11,<2
 librosa>=0.10.2,<2
 soundfile>=0.12,<1
+# MP3·M4A 예비 디코더 (FFmpeg 포함) — libsndfile이 못 읽는 파일용
+av>=12,<20
 
 # 테스트
 pytest>=8

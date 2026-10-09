@@ -16,6 +16,7 @@ from typing import Callable
 import librosa
 import numpy as np
 
+from .audio_io import read_audio
 from .theory import CHORD_QUALITIES, chord_label, diatonic_chords, key_name
 
 SR = 22050
@@ -47,10 +48,14 @@ class KeyInfo:
 
 
 def load_audio(path: str) -> tuple[np.ndarray, int]:
-    y, sr = librosa.load(path, sr=SR, mono=True)
+    """모노 · SR(22050Hz). MP3·M4A 등은 audio_io가 필요하면 PyAV로 읽는다."""
+    data, sr = read_audio(path)
+    y = data.mean(axis=1)
     if y.size == 0:
         raise ValueError("음원에서 소리를 읽지 못했어요")
-    return y, sr
+    if sr != SR:
+        y = librosa.resample(y, orig_sr=sr, target_sr=SR)
+    return y.astype(np.float32), SR
 
 
 def track_beats(y: np.ndarray, sr: int, beats_per_bar: int = 4) -> BeatInfo:

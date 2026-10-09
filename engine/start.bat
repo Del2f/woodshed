@@ -12,8 +12,11 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
   )
   ".venv\Scripts\python.exe" -m pip install --upgrade pip
-  ".venv\Scripts\python.exe" -m pip install -r requirements.txt || (pause & exit /b 1)
 )
+
+rem 업데이트로 필요한 패키지가 늘었을 수 있어 매번 확인한다 (이미 있으면 몇 초면 끝남)
+echo [Woodshed] 필요한 패키지 확인 중...
+".venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check -r requirements.txt || (pause & exit /b 1)
 
 ".venv\Scripts\python.exe" -m woodshed_engine
 pause
