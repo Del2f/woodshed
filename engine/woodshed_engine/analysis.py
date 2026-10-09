@@ -60,11 +60,12 @@ def load_audio(path: str) -> tuple[np.ndarray, int]:
 
 def track_beats(y: np.ndarray, sr: int, beats_per_bar: int = 4) -> BeatInfo:
     onset = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP, aggregate=np.median)
-    _, frames = librosa.beat.beat_track(onset_envelope=onset, sr=sr, hop_length=HOP, units="frames")
-    # 템포 보정: 중앙값 방식은 킥(저음 대역에만 있음)을 거의 못 본다. 전체 대역과 저음 대역(킥·베이스)
-    # 타격 세기를 따로 만들어, 어느 쪽이든 박 사이에 센 타격이 있으면 두 배로 본다.
+    # 중앙값 방식은 킥(저음 대역에만 있음)을 거의 못 본다. 전체 대역과 저음 대역(킥·베이스) 타격 세기도 만든다.
     onset_full = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP, aggregate=np.mean)
     onset_low = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP, aggregate=np.mean, fmax=200, n_mels=16)
+    # 비트 추적 전에 템포를 먼저 정해 준다 — 그대로 두면 2/3(120 → 80) 같은 엉뚱한 박을 고르기도 한다
+    tempo = estimate_tempo([onset, onset_full, onset_low], sr)
+    _, frames = librosa.beat.beat_track(onset_envelope=onset, sr=sr, hop_length=HOP, units="frames", bpm=tempo)
     frames = fix_tempo_octave([onset_full, onset_low], np.asarray(frames, dtype=int), sr)
     times = librosa.frames_to_time(frames, sr=sr, hop_length=HOP)
 
@@ -89,6 +90,29 @@ def track_beats(y: np.ndarray, sr: int, beats_per_bar: int = 4) -> BeatInfo:
         beat_frames=frames,
         low_at=low_at,
     )
+
+
+def estimate_tempo(onsets: list[np.ndarray], sr: int, lo: float = 60.0, hi: float = 200.0) -> float:
+    """타격 패턴의 자기상관으로 템포 후보(60~200 BPM)를 고른다.
+
+    한 박 간격(lag)뿐 아니라 2박·4박 간격에서도 패턴이 반복돼야 점수가 높다 — 8분음표 리프 때문에
+    생기는 3/4박 간격(2/3 템포) 같은 우연한 반복을 걸러 낸다. 록·메탈에 흔한 120 근처를 약간 우대한다.
+    """
+    frame_rate = sr / HOP
+    bpms = np.arange(lo, hi + 0.25, 0.25)
+    total = np.zeros_like(bpms)
+    max_lag = int(4 * 60 / lo * frame_rate) + 2
+    for env in onsets:
+        e = env - env.mean()
+        if not np.any(e):
+            continue
+        ac = librosa.autocorrelate(e, max_size=max_lag)
+        ac = ac / ac[0]
+        lag = 60.0 / bpms * frame_rate
+        at = lambda k: np.interp(k * lag, np.arange(len(ac)), ac, right=0.0)  # noqa: E731
+        total += at(1) + 0.5 * at(2) + 0.25 * at(4)
+    prior = np.exp(-0.5 * (np.log2(bpms / 120.0) / 0.9) ** 2)
+    return float(bpms[int(np.argmax(total * prior))])
 
 
 def fix_tempo_octave(onsets: list[np.ndarray], frames: np.ndarray, sr: int, slow: float = 110.0, fast: float = 200.0) -> np.ndarray:
