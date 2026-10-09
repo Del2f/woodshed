@@ -1,0 +1,12 @@
+# Woodshed 분석 엔진 — 기본 (박자·키·코드). GPU 없어도 됨.
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+python-multipart>=0.0.9
+numpy>=1.26,<3
+scipy>=1.11,<2
+librosa>=0.10.2,<2
+soundfile>=0.12,<1
+
+# 테스트
+pytest>=8
+httpx>=0.27

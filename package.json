@@ -1,6 +1,6 @@
 {
   "name": "woodshed",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "일렉기타 개인 연습실 — 구간 반복, 메트로놈, 튜너, 연습 기록",
   "scripts": {
     "dev": "vite",

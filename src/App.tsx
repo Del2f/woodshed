@@ -5,6 +5,7 @@ import { Player, PlayerLanding } from './pages/Player';
 import { Metronome } from './pages/Metronome';
 import { Tuner } from './pages/Tuner';
 import { Settings } from './pages/Settings';
+import { Engine } from './pages/Engine';
 import { ComingSoon } from './pages/ComingSoon';
 
 export function App() {
@@ -20,6 +21,7 @@ export function App() {
             <Route path="/metronome" element={<Metronome />} />
             <Route path="/tuner" element={<Tuner />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/engine" element={<Engine />} />
             <Route
               path="/tabs"
               element={

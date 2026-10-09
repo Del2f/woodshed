@@ -31,6 +31,31 @@ export interface PracticeSession {
   durationSec: number;
 }
 
+export interface ChordSegment {
+  start: number;
+  end: number;
+  /** 'Em', 'C', 'B7', 'E5', 코드 없음은 'N' */
+  label: string;
+}
+
+/** 로컬 분석 엔진 결과 (engine/woodshed_engine/server.py) */
+export interface SongAnalysis {
+  songId: string;
+  version: number;
+  engineVersion: string;
+  analyzedAt: string;
+  fileHash: string;
+  duration: number;
+  bpm: number;
+  beatsPerBar: number;
+  beats: number[];
+  downbeats: number[];
+  key: { name: string; tonic: number; mode: 'major' | 'minor'; confidence: number };
+  chords: ChordSegment[];
+  /** 엔진에 저장된 분리 트랙 이름 ('guitar', 'no_guitar') */
+  stems: string[];
+}
+
 export interface BackupFile {
   app: 'woodshed';
   version: 1;
@@ -38,6 +63,8 @@ export interface BackupFile {
   songs: Song[];
   loops: LoopSection[];
   sessions: PracticeSession[];
+  /** v0.2부터 — 이전 백업에는 없을 수 있다 */
+  analyses?: SongAnalysis[];
 }
 
 export interface DataStore {
@@ -49,6 +76,8 @@ export interface DataStore {
   listLoops(songId: string): Promise<LoopSection[]>;
   upsertLoop(loop: LoopSection): Promise<void>;
   deleteLoop(id: string): Promise<void>;
+  getAnalysis(songId: string): Promise<SongAnalysis | null>;
+  saveAnalysis(analysis: SongAnalysis): Promise<void>;
   addSession(session: PracticeSession): Promise<void>;
   listSessionsSince(iso: string): Promise<PracticeSession[]>;
   exportAll(): Promise<BackupFile>;

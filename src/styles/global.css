@@ -224,3 +224,37 @@ input[type='range'] { accent-color: var(--accent); width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ── 지판 / 코드 흐름 (v0.2) ─────────────────── */
+.fretboard { display: flex; flex-direction: column; border-radius: 14px; background: #1b140f; padding: 10px 0; }
+.fb-row { display: grid; }
+.fb-cell {
+  position: relative; height: 38px; display: grid; place-items: center;
+  border-right: 2px solid #4a4038;
+  background: linear-gradient(#9a8f84, #9a8f84) center / 100% 1px no-repeat;
+}
+.fb-cell.open { border-right: 5px solid #d8d2ca; }
+.fb-dot {
+  width: 30px; height: 30px; border-radius: 15px; border: 1.5px solid transparent; display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; transition: background 0.25s var(--ease), transform 0.25s var(--ease);
+  animation: pop 0.25s var(--ease);
+}
+@keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+.fb-nums { margin-top: 8px; }
+.fb-nums span { text-align: center; font-size: 12px; font-family: var(--mono); color: var(--muted); }
+.fb-nums span.mark { color: var(--text); font-weight: 700; }
+.chord-flow { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(104px, 1fr); gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.chord-block {
+  min-height: 92px; padding: 12px 14px; border-radius: 16px; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; justify-content: space-between; background: #222224;
+  border: 1.5px solid transparent; color: var(--text); transition: background 0.2s, border-color 0.2s;
+}
+.chord-block:hover { background: var(--surface-3); }
+.chord-block.past { background: #1c1c1e; }
+.chord-block.past .name { color: var(--text-4); }
+.chord-block.now { background: var(--accent-soft); border-color: var(--accent); }
+.chord-block.now .name { color: var(--accent-text); }
+.chord-block .name { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+.chord-block .bar { font-size: 12px; color: var(--text-4); font-family: var(--mono); }
+.chord-block .roman { font-size: 13px; font-weight: 600; color: var(--text-3); }
+.tone-pill { padding: 4px 10px; border-radius: 8px; font-size: 13px; font-weight: 700; }

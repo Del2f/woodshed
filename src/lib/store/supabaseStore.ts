@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { BackupFile, DataStore, LoopSection, PracticeSession, Song } from './types';
+import type { BackupFile, DataStore, LoopSection, PracticeSession, Song, SongAnalysis } from './types';
 
 // DB는 snake_case, 앱은 camelCase. user_id는 DB 기본값(auth.uid())과 RLS가 처리한다.
 
@@ -137,6 +137,17 @@ export class SupabaseStore implements DataStore {
     check(await this.sb.from('loops').delete().eq('id', id));
   }
 
+  async getAnalysis(songId: string): Promise<SongAnalysis | null> {
+    const row = check<{ data: SongAnalysis } | null>(await this.sb.from('analyses').select('data').eq('song_id', songId).maybeSingle());
+    return row ? row.data : null;
+  }
+
+  async saveAnalysis(analysis: SongAnalysis): Promise<void> {
+    check(
+      await this.sb.from('analyses').upsert({ song_id: analysis.songId, data: analysis, updated_at: new Date().toISOString() }),
+    );
+  }
+
   async addSession(session: PracticeSession): Promise<void> {
     check(await this.sb.from('practice_sessions').upsert(sessionToRow(session)));
   }
@@ -150,6 +161,7 @@ export class SupabaseStore implements DataStore {
     const songs = check<SongRow[]>(await this.sb.from('songs').select('*'));
     const loops = check<LoopRow[]>(await this.sb.from('loops').select('*'));
     const sessions = check<SessionRow[]>(await this.sb.from('practice_sessions').select('*'));
+    const analyses = check<{ data: SongAnalysis }[]>(await this.sb.from('analyses').select('data'));
     return {
       app: 'woodshed',
       version: 1,
@@ -157,6 +169,7 @@ export class SupabaseStore implements DataStore {
       songs: songs.map(songFromRow),
       loops: loops.map(loopFromRow),
       sessions: sessions.map(sessionFromRow),
+      analyses: analyses.map((a) => a.data),
     };
   }
 
@@ -165,5 +178,9 @@ export class SupabaseStore implements DataStore {
     if (backup.songs.length) check(await this.sb.from('songs').upsert(backup.songs.map(songToRow)));
     if (backup.loops.length) check(await this.sb.from('loops').upsert(backup.loops.map(loopToRow)));
     if (backup.sessions.length) check(await this.sb.from('practice_sessions').upsert(backup.sessions.map(sessionToRow)));
+    const analyses = backup.analyses ?? [];
+    if (analyses.length) {
+      check(await this.sb.from('analyses').upsert(analyses.map((a) => ({ song_id: a.songId, data: a, updated_at: new Date().toISOString() }))));
+    }
   }
 }

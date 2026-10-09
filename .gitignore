@@ -15,3 +15,9 @@ dist
 
 # Vite 임시 파일
 vite.config.ts.timestamp-*
+
+# 분석 엔진
+engine/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

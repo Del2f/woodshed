@@ -26,6 +26,7 @@ const GROUPS: { label: string; items: Item[] }[] = [
     items: [
       { to: '/tuner', label: '튜너', icon: 'tuner' },
       { to: '/metronome', label: '메트로놈', icon: 'metronome' },
+      { to: '/engine', label: '분석 엔진', icon: 'cpu' },
     ],
   },
 ];

@@ -1,5 +1,5 @@
 import { createStore, get, set, type UseStore } from 'idb-keyval';
-import type { BackupFile, DataStore, LoopSection, PracticeSession, Song } from './types';
+import type { BackupFile, DataStore, LoopSection, PracticeSession, Song, SongAnalysis } from './types';
 
 type Keyed = { id: string };
 
@@ -47,6 +47,7 @@ export class LocalStore implements DataStore {
   async deleteSong(id: string): Promise<void> {
     await this.save('songs', (await this.rows<Song>('songs')).filter((s) => s.id !== id));
     await this.save('loops', (await this.rows<LoopSection>('loops')).filter((l) => l.songId !== id));
+    await this.save('analyses', (await this.rows<SongAnalysis>('analyses')).filter((a) => a.songId !== id));
     const sessions = await this.rows<PracticeSession>('sessions');
     await this.save('sessions', sessions.map((s) => (s.songId === id ? { ...s, songId: null } : s)));
   }
@@ -62,6 +63,15 @@ export class LocalStore implements DataStore {
 
   async deleteLoop(id: string): Promise<void> {
     await this.save('loops', (await this.rows<LoopSection>('loops')).filter((l) => l.id !== id));
+  }
+
+  async getAnalysis(songId: string): Promise<SongAnalysis | null> {
+    return (await this.rows<SongAnalysis>('analyses')).find((a) => a.songId === songId) ?? null;
+  }
+
+  async saveAnalysis(analysis: SongAnalysis): Promise<void> {
+    const rows = (await this.rows<SongAnalysis>('analyses')).filter((a) => a.songId !== analysis.songId);
+    await this.save('analyses', [...rows, analysis]);
   }
 
   async addSession(session: PracticeSession): Promise<void> {
@@ -80,6 +90,7 @@ export class LocalStore implements DataStore {
       songs: await this.rows<Song>('songs'),
       loops: await this.rows<LoopSection>('loops'),
       sessions: await this.rows<PracticeSession>('sessions'),
+      analyses: await this.rows<SongAnalysis>('analyses'),
     };
   }
 
@@ -93,5 +104,6 @@ export class LocalStore implements DataStore {
     await this.save('songs', songs);
     await this.save('loops', loops);
     await this.save('sessions', sessions);
+    for (const a of backup.analyses ?? []) await this.saveAnalysis(a);
   }
 }

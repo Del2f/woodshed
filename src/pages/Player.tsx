@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin, { type Region } from 'wavesurfer.js/dist/plugins/regions.esm.js';
@@ -17,8 +17,14 @@ import {
 } from '../lib/audioFolder';
 import { formatTime, KEY_OPTIONS, keyLabel, uid } from '../lib/format';
 import { relativeDay, tileColor } from '../lib/songs';
-import { TUNINGS, type LoopSection, type Song } from '../lib/store/types';
+import { TUNINGS, type LoopSection, type Song, type SongAnalysis } from '../lib/store/types';
 import { clampRate, DEFAULT_TRAINER, MAX_RATE, MIN_RATE, rateAfterLoop, type TrainerConfig } from '../features/player/speedTrainer';
+import { AnalyzeCard, ChordFlow, ChordNow } from '../features/analysis/AnalysisPanels';
+import { TUNING_PRESETS } from '../features/tuner/pitch';
+import { analyzeWithEngine, stemUrl, useEngine } from '../lib/engine';
+import { barAt, parseKey, segmentAt, snapToBeat } from '../lib/theory';
+
+type Source = 'original' | 'guitar' | 'no_guitar';
 
 const REGION_COLOR = 'rgba(255, 159, 10, 0.16)';
 const SPEED_PRESETS = [0.5, 0.7, 0.85, 1, 1.1];
@@ -138,6 +144,28 @@ export function Player() {
     await forgetSongFile(old);
   };
 
+  // ── 분석 결과 (로컬 엔진) ──
+  const engine = useEngine();
+  const analysisQ = useAsync(() => store.getAnalysis(songId), [store, songId]);
+  const [analysis, setAnalysis] = useState<SongAnalysis | null>(null);
+  useEffect(() => {
+    if (analysisQ.data !== undefined) setAnalysis(analysisQ.data);
+  }, [analysisQ.data]);
+  const [job, setJob] = useState<{ step: string; progress: number; error: string | null } | null>(null);
+  const [snap, setSnap] = useState(true);
+  const [source, setSource] = useState<Source>('original');
+  const [sourceError, setSourceError] = useState<string | null>(null);
+  const beatsRef = useRef<number[]>([]);
+  const snapRef = useRef(snap);
+  beatsRef.current = analysis?.beats ?? [];
+  snapRef.current = snap && !!analysis;
+
+  const fileUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => {
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
+  }, [fileUrl]);
+  const playUrl = source !== 'original' && analysis?.stems.includes(source) ? stemUrl(analysis.fileHash, source) : fileUrl;
+
   // ── 재생 상태 ──
   const waveEl = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -162,6 +190,9 @@ export function Player() {
   const loopCountRef = useRef(0);
   const pendingLoopIdRef = useRef<string | null>(null);
   const activeLoopIdRef = useRef<string | null>(null);
+  /** 음원을 바꿔 끼울 때(원곡 ↔ 분리 트랙) 이어서 재생할 위치·구간 */
+  const resumeRef = useRef<{ time: number; playing: boolean; range: Range | null } | null>(null);
+  const restoringRef = useRef(false);
   loopOnRef.current = loopOn;
   rangeRef.current = range;
   trainerRef.current = trainer;
@@ -223,12 +254,11 @@ export function Player() {
 
   // ── WaveSurfer ──
   useEffect(() => {
-    if (!file || !waveEl.current) return;
-    const url = URL.createObjectURL(file);
+    if (!playUrl || !waveEl.current) return;
     const regions = RegionsPlugin.create();
     const ws = WaveSurfer.create({
       container: waveEl.current,
-      url,
+      url: playUrl,
       height: 150,
       waveColor: '#48484A',
       progressColor: '#8E8E93',
@@ -250,6 +280,16 @@ export function Player() {
       setDuration(d);
       setReady(true);
       ws.setPlaybackRate(rateRef.current, true);
+      const resume = resumeRef.current;
+      resumeRef.current = null;
+      if (resume) {
+        if (resume.range) {
+          restoringRef.current = true;
+          regions.addRegion({ ...resume.range, color: REGION_COLOR, drag: true, resize: true });
+        }
+        ws.setTime(resume.time);
+        if (resume.playing) ws.play();
+      }
       const s = songRef.current;
       if (s && !s.durationSec) {
         const updated = { ...s, durationSec: Math.round(d) };
@@ -293,9 +333,21 @@ export function Player() {
       onLoopComplete();
     });
 
+    // 분리 트랙을 불러오지 못하면 원곡으로 되돌린다 (엔진이 꺼졌을 때 등)
+    ws.on('error', () => {
+      if (playUrl !== fileUrl) {
+        setSourceError('분리된 트랙을 불러오지 못했어요. 분석 엔진이 켜져 있는지 확인해 주세요.');
+        setSource('original');
+      }
+    });
+
     regions.on('region-created', (r) => {
       regions.getRegions().forEach((o) => o !== r && o.remove());
       applyRegion(r);
+      if (restoringRef.current) {
+        restoringRef.current = false; // 트랙 교체로 다시 그린 구간 — 반복 상태는 그대로
+        return;
+      }
       setActiveLoopId(pendingLoopIdRef.current);
       pendingLoopIdRef.current = null;
       setLoopOn(true);
@@ -305,6 +357,13 @@ export function Player() {
     });
     regions.on('region-update', applyRegion);
     regions.on('region-updated', (r) => {
+      // 마디에 맞추기: 드래그를 놓으면 양 끝을 가장 가까운 박으로
+      if (snapRef.current && beatsRef.current.length) {
+        const start = snapToBeat(r.start, beatsRef.current);
+        let end = snapToBeat(r.end, beatsRef.current);
+        if (end <= start) end = r.end;
+        if (start !== r.start || end !== r.end) r.setOptions({ start, end });
+      }
       applyRegion(r);
       setActiveLoopId(null); // 저장된 구간을 움직이면 '수정됨' 상태
     });
@@ -312,13 +371,21 @@ export function Player() {
     return () => {
       disableDrag();
       ws.destroy();
-      URL.revokeObjectURL(url);
       wsRef.current = null;
       regionsRef.current = null;
       setReady(false);
       setPlaying(false);
     };
-  }, [file, onLoopComplete, flushPractice]);
+  }, [playUrl, fileUrl, onLoopComplete, flushPractice]);
+
+  const switchSource = useCallback((next: Source) => {
+    const ws = wsRef.current;
+    resumeRef.current = { time: ws?.getCurrentTime() ?? 0, playing: ws?.isPlaying() ?? false, range: rangeRef.current };
+    setSourceError(null);
+    setSource(next);
+  }, []);
+
+  const snapT = (t: number) => (snapRef.current && beatsRef.current.length ? snapToBeat(t, beatsRef.current) : t);
 
   const loadLoop = useCallback((l: LoopSection) => {
     const regions = regionsRef.current;
@@ -361,7 +428,7 @@ export function Player() {
   const markA = useCallback(() => {
     const ws = wsRef.current;
     if (!ws) return;
-    const t = ws.getCurrentTime();
+    const t = snapT(ws.getCurrentTime());
     const region = regionsRef.current?.getRegions()[0];
     if (region && t < region.end) {
       region.setOptions({ start: t });
@@ -377,7 +444,7 @@ export function Player() {
     const ws = wsRef.current;
     const regions = regionsRef.current;
     if (!ws || !regions) return;
-    const t = ws.getCurrentTime();
+    const t = snapT(ws.getCurrentTime());
     const region = regions.getRegions()[0];
     if (pendingStart !== null && t > pendingStart + 0.2) {
       regions.addRegion({ start: pendingStart, end: t, color: REGION_COLOR, drag: true, resize: true });
@@ -458,6 +525,38 @@ export function Player() {
     navigate('/');
   };
 
+  const runAnalysis = async (separate: boolean) => {
+    if (!file || !song) return;
+    setJob({ step: '준비 중', progress: 0, error: null });
+    try {
+      const result = await analyzeWithEngine(file, { separate }, (step, progress) => setJob({ step, progress, error: null }));
+      const a: SongAnalysis = { ...result, songId: song.id };
+      await store.saveAnalysis(a);
+      setAnalysis(a);
+      setJob(null);
+      // 비어 있는 곡 정보만 채운다 — 직접 고친 값은 덮어쓰지 않음
+      const patch: Partial<Song> = {};
+      if (!song.bpm && a.bpm) patch.bpm = Math.round(a.bpm);
+      if (!song.musicalKey) patch.musicalKey = a.key.name;
+      if (Object.keys(patch).length) await patchSong(patch);
+    } catch (e) {
+      setJob({ step: '', progress: 0, error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  // 분석 결과에서 화면에 쓸 값들
+  const keyName = song?.musicalKey ?? analysis?.key.name ?? null;
+  const keyInfo = useMemo(() => parseKey(keyName), [keyName]);
+  const tuning = song?.tuning;
+  const strings = useMemo(() => (TUNING_PRESETS.find((t) => t.label === tuning) ?? TUNING_PRESETS[0]).strings, [tuning]);
+  let currentChord: string | null = null;
+  if (analysis) {
+    const i = segmentAt(analysis.chords, current);
+    const seg = i >= 0 ? analysis.chords[i] : undefined;
+    currentChord = seg && seg.label !== 'N' ? seg.label : (analysis.chords.find((c) => c.start > current && c.label !== 'N')?.label ?? null);
+  }
+  const bar = analysis ? barAt(current, analysis.downbeats) : null;
+
   // ── 렌더 ──
   if (songQ.loading && song === null) return <div className="page"><p className="muted">불러오는 중…</p></div>;
   if (!song) {
@@ -524,7 +623,37 @@ export function Player() {
         </div>
       )}
 
+      {sourceError && (
+        <div className="banner error" role="status">
+          <Icon name="alert" />
+          <span>{sourceError}</span>
+        </div>
+      )}
+
       <section className="card lg" aria-label="파형과 반복 구간" style={{ gap: 14 }}>
+        {analysis && (
+          <div className="card-head" style={{ alignItems: 'center' }}>
+            {analysis.stems.length > 0 ? (
+              <Segmented
+                label="들을 트랙"
+                surface
+                value={source}
+                onChange={switchSource}
+                options={[
+                  { value: 'original', label: '원곡' },
+                  { value: 'guitar', label: '기타만' },
+                  { value: 'no_guitar', label: '기타 빼고' },
+                ]}
+              />
+            ) : (
+              <span className="muted" style={{ fontSize: 13 }}>기타 분리를 켜고 다시 분석하면 기타만·기타 빼고 들을 수 있어요</span>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: 'var(--text-3)' }}>
+              구간을 박자에 맞추기
+              <Switch label="구간을 박자에 맞추기" checked={snap} onChange={setSnap} />
+            </label>
+          </div>
+        )}
         <div className="card-head">
           <span className="muted" style={{ fontSize: 13 }}>
             파형을 드래그해 반복 구간을 만드세요 · 구간 양 끝을 끌어 조절
@@ -546,7 +675,10 @@ export function Player() {
         </div>
         <div className="wave-times">
           <span>{formatTime(current)}</span>
-          <span>{Math.round(rate * 100)}%</span>
+          <span>
+            {bar ? `마디 ${bar} · ` : ''}
+            {Math.round(rate * 100)}%
+          </span>
           <span>{formatTime(duration)}</span>
         </div>
       </section>
@@ -695,11 +827,22 @@ export function Player() {
         </section>
       </div>
 
+      {analysis && (
+        <>
+          <ChordFlow chords={analysis.chords} keyInfo={keyInfo} downbeats={analysis.downbeats} current={current} onSeek={(t) => wsRef.current?.setTime(t)} />
+          <ChordNow label={currentChord} keyInfo={keyInfo} strings={strings} />
+        </>
+      )}
+
       <div className="row">
+        <AnalyzeCard health={engine.health} analysis={analysis} canAnalyze={!!file} job={job} onAnalyze={runAnalysis} />
+
         <section className="card" aria-label="곡 정보" style={{ flex: '2 1 420px' }}>
           <div className="card-head">
             <h2 className="title-s">곡 정보</h2>
-            <span className="muted" style={{ fontSize: 13 }}>로컬 분석 엔진(v0.2)이 붙으면 자동으로 채워져요</span>
+            <span className="muted" style={{ fontSize: 13 }}>
+              {analysis ? `분석: ${analysis.key.name} · ${Math.round(analysis.bpm)} BPM — 직접 고친 값이 우선이에요` : '분석하면 빈 칸이 자동으로 채워져요'}
+            </span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
             <label className="field">
@@ -717,6 +860,7 @@ export function Player() {
                 type="number"
                 min={30}
                 max={300}
+                key={song.bpm ?? 'none'}
                 defaultValue={song.bpm ?? ''}
                 onBlur={(e) => {
                   const v = e.target.value ? Math.round(Number(e.target.value)) : null;
@@ -745,14 +889,6 @@ export function Player() {
           <button type="button" className="btn danger sm" style={{ alignSelf: 'flex-start' }} onClick={removeSong}>
             라이브러리에서 빼기
           </button>
-        </section>
-
-        <section className="card accent" aria-label="코드 흐름 안내" style={{ flex: '1 1 300px' }}>
-          <span className="eyebrow" style={{ fontSize: 13, letterSpacing: '0.04em' }}>다음 업데이트</span>
-          <h2 className="title-s">코드 흐름 · 지판 · 코드톤</h2>
-          <p className="lead" style={{ fontSize: 14 }}>
-            v0.2에서 내 PC의 분석 엔진이 이 곡의 박자, 키, 코드 진행을 찾아 이 자리에 보여 줘요. 구간도 마디선에 딱 맞게 붙게 됩니다.
-          </p>
         </section>
       </div>
     </div>
