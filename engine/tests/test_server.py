@@ -52,7 +52,7 @@ def test_analyze_then_cache(client):
     done = wait_done(client, job["id"])
     assert done["status"] == "done", done["error"]
     result = done["result"]
-    assert result["version"] == 3
+    assert result["version"] == 4
     assert result["duration"] == pytest.approx(6.0, abs=0.05)
     assert result["chords"] and result["beats"]
 

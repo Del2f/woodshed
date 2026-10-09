@@ -103,13 +103,16 @@ def _run(job: Job, audio: Path) -> None:
 
     job.status = "running"
     try:
-        result = analyze(str(audio), report)
         result_path, stem_dir = _paths(job.file_hash)
         stems: list[str] = []
+        bass_path: str | None = None
         if job.separate:
-            report("기타 트랙 분리 중 (GPU가 있으면 빨라요)", 0.8)
-            separation.separate_guitar(audio, stem_dir)
+            # 분리를 먼저 하면 '기타 뺀 트랙'의 베이스로 근음을 찾을 수 있다 — 디스토션에 훨씬 강하다
+            report("기타 트랙 분리 중 (GPU가 있으면 빨라요)", 0.05)
+            produced = separation.separate_guitar(audio, stem_dir)
             stems = list(separation.STEMS)
+            bass_path = str(produced["no_guitar"])
+        result = analyze(str(audio), lambda step, p: report(step, 0.5 + p * 0.5) if job.separate else report(step, p), bass_path)
         data = {
             "version": ANALYSIS_VERSION,
             "engineVersion": __version__,
