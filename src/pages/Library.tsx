@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import { useStore } from '../lib/store/StoreProvider';
 import { useAsync } from '../lib/useAsync';
 import { useMusicFolder } from '../lib/useMusicFolder';
-import { rememberSessionFile } from '../lib/audioFolder';
+import { displayFileName, filePickerSupported, pickAudioFiles, rememberSessionFile } from '../lib/audioFolder';
 import { formatDuration, formatTime, keyLabel, practiceStreak, weekBuckets } from '../lib/format';
 import { newSong, relativeDay, tileColor } from '../lib/songs';
 import type { Song } from '../lib/store/types';
@@ -20,25 +20,46 @@ export function Library() {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   const songs = songsQ.data ?? [];
   const known = useMemo(() => new Set(songs.map((s) => s.fileName)), [songs]);
   const newFiles = folder.files.filter((f) => !known.has(f.path));
 
-  const addSongs = async (paths: string[]) => {
+  /** 곡을 추가하고, 한 곡이면 바로 플레이어로 */
+  const addSongs = async (paths: string[], openIfSingle = false) => {
+    if (!paths.length) return;
     setBusy(true);
     try {
-      for (const p of paths) await store.upsertSong(newSong(p));
+      const added = paths.map(newSong);
+      for (const s of added) await store.upsertSong(s);
       bump();
+      if (openIfSingle && added.length === 1) navigate(`/player/${added[0].id}`);
     } finally {
       setBusy(false);
+    }
+  };
+
+  // 폴더와 상관없이 어디 있는 파일이든 하나씩(또는 여러 개) 추가
+  const addFromFiles = async () => {
+    if (!filePickerSupported) {
+      fileInput.current?.click();
+      return;
+    }
+    try {
+      await addSongs(await pickAudioFiles(), true);
+    } catch (e) {
+      alert(`파일을 추가하지 못했어요: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
   const onPickFiles = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     files.forEach(rememberSessionFile);
-    await addSongs(files.map((f) => f.name).filter((n) => !known.has(n)));
+    await addSongs(
+      files.map((f) => f.name).filter((n) => !known.has(n)),
+      true,
+    );
     e.target.value = '';
   };
 
@@ -70,17 +91,15 @@ export function Library() {
             <span className="sr-only">곡 검색</span>
             <input type="search" placeholder="곡, 아티스트 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
           </label>
-          {folder.status === 'unsupported' ? (
-            <button type="button" className="btn primary" onClick={() => fileInput.current?.click()}>
-              <Icon name="plus" size={18} strokeWidth={2.2} />
-              음원 추가
-            </button>
-          ) : (
-            <button type="button" className="btn primary" onClick={folder.status === 'granted' ? folder.refresh : folder.choose}>
+          {folder.status !== 'unsupported' && (
+            <button type="button" className="btn" onClick={folder.status === 'granted' ? folder.refresh : folder.choose}>
               <Icon name={folder.status === 'granted' ? 'repeat' : 'folder'} size={18} strokeWidth={2} />
-              {folder.status === 'granted' ? '폴더 다시 읽기' : '음원 폴더 연결'}
+              {folder.status === 'granted' ? '폴더 다시 읽기' : '폴더 연결'}
             </button>
           )}
+          <button type="button" className="btn primary" onClick={addFromFiles} disabled={busy}>
+            <Icon name="plus" size={18} strokeWidth={2.2} />곡 추가
+          </button>
           <input ref={fileInput} type="file" accept="audio/*" multiple hidden onChange={onPickFiles} />
         </div>
       </header>
@@ -159,7 +178,7 @@ export function Library() {
           <div className="empty">
             <Icon name="library" size={32} />
             <strong style={{ fontSize: 18 }}>{q ? '검색 결과가 없어요' : '아직 곡이 없어요'}</strong>
-            {!q && <span className="muted">음원 폴더를 연결하고 연습할 곡을 추가해 보세요.</span>}
+            {!q && <span className="muted">‘곡 추가’로 음원을 하나씩 넣거나, 음원 폴더를 연결해 보세요.</span>}
           </div>
         ) : (
           <div className="song-grid">
@@ -199,7 +218,7 @@ function SongCard({ song }: { song: Song }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span className="song-title">{song.title}</span>
         <span className="song-meta">
-          {[song.artist, song.durationSec ? formatTime(song.durationSec) : null].filter(Boolean).join(' · ') || song.fileName}
+          {[song.artist, song.durationSec ? formatTime(song.durationSec) : null].filter(Boolean).join(' · ') || displayFileName(song.fileName)}
         </span>
       </div>
     </Link>
@@ -246,7 +265,7 @@ function FolderCard({
       {folder.status === 'none' && (
         <>
           <p className="lead" style={{ fontSize: 14 }}>
-            음원은 업로드하지 않고 PC 폴더에서 바로 읽어요. OneDrive나 구글 드라이브 동기화 폴더를 고르면 백업도 함께 돼요.
+            음원은 업로드하지 않고 PC에서 바로 읽어요. 폴더를 연결하면 그 안의 곡을 한 번에 볼 수 있고, 폴더 없이 ‘곡 추가’로 하나씩 넣어도 돼요.
           </p>
           <button type="button" className="btn light" style={{ alignSelf: 'flex-start' }} onClick={folder.choose}>
             <Icon name="folder" size={18} />

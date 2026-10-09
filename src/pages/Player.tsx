@@ -6,7 +6,15 @@ import { Icon } from '../components/Icon';
 import { Segmented, Switch } from '../components/controls';
 import { useStore } from '../lib/store/StoreProvider';
 import { useAsync } from '../lib/useAsync';
-import { rememberSessionFile, requestFolderAccess, resolveSongFile } from '../lib/audioFolder';
+import {
+  displayFileName,
+  filePickerSupported,
+  forgetSongFile,
+  pickAudioFiles,
+  rememberSessionFile,
+  requestFolderAccess,
+  resolveSongFile,
+} from '../lib/audioFolder';
 import { formatTime, KEY_OPTIONS, keyLabel, uid } from '../lib/format';
 import { relativeDay, tileColor } from '../lib/songs';
 import { TUNINGS, type LoopSection, type Song } from '../lib/store/types';
@@ -88,7 +96,7 @@ export function Player() {
   // ── 음원 파일 찾기 ──
   const [file, setFile] = useState<File | null>(null);
   const [fileState, setFileState] = useState<FileState>('loading');
-  const [permHandle, setPermHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [permHandle, setPermHandle] = useState<FileSystemHandle | null>(null);
   const fileName = song?.fileName;
 
   const resolve = useCallback(async () => {
@@ -120,6 +128,14 @@ export function Player() {
     rememberSessionFile(f);
     setFile(f);
     setFileState('ok');
+  };
+  /** 파일을 다시 골라 곡에 연결 — 다음 방문부터는 묻지 않고 열린다 */
+  const relinkFile = async () => {
+    const [path] = await pickAudioFiles(false);
+    if (!path || !song) return;
+    const old = song.fileName;
+    await patchSong({ fileName: path });
+    await forgetSongFile(old);
   };
 
   // ── 재생 상태 ──
@@ -437,6 +453,7 @@ export function Player() {
   const removeSong = async () => {
     if (!song || !confirm(`‘${song.title}’을(를) 라이브러리에서 뺄까요?\n저장한 구간도 함께 삭제됩니다. 음원 파일은 지워지지 않아요.`)) return;
     await store.deleteSong(song.id);
+    await forgetSongFile(song.fileName);
     bump();
     navigate('/');
   };
@@ -478,7 +495,10 @@ export function Player() {
       {fileState === 'need-permission' && (
         <div className="banner">
           <Icon name="folder" />
-          <span>음원 폴더 “{permHandle?.name}” 읽기를 허용해 주세요. 브라우저 보안상 방문할 때마다 한 번씩 필요해요.</span>
+          <span>
+            {permHandle?.kind === 'file' ? '음원 파일' : '음원 폴더'} “{permHandle?.name}” 읽기를 허용해 주세요. 브라우저 보안상 방문할 때마다 한 번씩
+            필요해요.
+          </span>
           <button type="button" className="btn sm primary" onClick={allowFolder}>
             허용
           </button>
@@ -488,12 +508,19 @@ export function Player() {
         <div className="banner">
           <Icon name="alert" />
           <span>
-            음원 파일 <strong>{song.fileName}</strong>을(를) 찾지 못했어요. 폴더에서 옮겨졌거나 이름이 바뀌었을 수 있어요.
+            음원 파일 <strong>{displayFileName(song.fileName)}</strong>을(를) 찾지 못했어요. 옮겨졌거나 이름이 바뀌었을 수 있고, 다른 PC·브라우저라면
+            파일을 다시 골라 주세요.
           </span>
-          <label className="btn sm primary" style={{ cursor: 'pointer' }}>
-            파일 직접 고르기
-            <input type="file" accept="audio/*" hidden onChange={pickManually} />
-          </label>
+          {filePickerSupported ? (
+            <button type="button" className="btn sm primary" onClick={relinkFile}>
+              파일 다시 연결
+            </button>
+          ) : (
+            <label className="btn sm primary" style={{ cursor: 'pointer' }}>
+              파일 직접 고르기
+              <input type="file" accept="audio/*" hidden onChange={pickManually} />
+            </label>
+          )}
         </div>
       )}
 

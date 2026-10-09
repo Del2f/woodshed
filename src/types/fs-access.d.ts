@@ -13,4 +13,9 @@ interface FileSystemDirectoryHandle {
 
 interface Window {
   showDirectoryPicker?(options?: { id?: string; mode?: FsPermissionMode; startIn?: string }): Promise<FileSystemDirectoryHandle>;
+  showOpenFilePicker?(options?: {
+    id?: string;
+    multiple?: boolean;
+    types?: { description?: string; accept: Record<string, `.${string}`[]> }[];
+  }): Promise<FileSystemFileHandle[]>;
 }
