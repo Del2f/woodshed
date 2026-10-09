@@ -1,0 +1,31 @@
+{
+  "name": "woodshed",
+  "version": "0.1.0",
+  "description": "일렉기타 개인 연습실 — 구간 반복, 메트로놈, 튜너, 연습 기록",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.3",
+    "idb-keyval": "^6.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
+    "wavesurfer.js": "^7.12.12"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
+  },
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,17 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+
+# 음원은 저장소에 절대 올리지 않습니다.
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.ogg
+
+# Vite 임시 파일
+vite.config.ts.timestamp-*
