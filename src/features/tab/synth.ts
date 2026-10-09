@@ -24,26 +24,43 @@ const midiHz = (m: number) => 440 * 2 ** ((m - 69) / 12);
 const MAX_LEN = 2.5;
 
 /** 한 음의 현 진동. pm(팜뮤트)은 빨리 감쇠, mute(데드)는 짧은 '칙' 소리 */
-export function renderPluck(sampleRate: number, midi: number, kind: 'open' | 'pm' | 'dead' | 'harmonic'): Float32Array {
+export function renderPluck(
+  sampleRate: number,
+  midi: number,
+  kind: 'open' | 'pm' | 'dead' | 'harmonic',
+  random: () => number = Math.random,
+): Float32Array {
   const freq = midiHz(kind === 'harmonic' ? midi + 12 : midi);
   const len = Math.floor((kind === 'dead' ? 0.06 : kind === 'pm' ? 0.6 : MAX_LEN) * sampleRate);
   const out = new Float32Array(len);
-  const n = Math.max(2, Math.round(sampleRate / freq));
+  // 한 바퀴 지연 = 정수 칸(n) + 평균 필터(0.5) + 올패스(d, 소수점). 정수 칸만 쓰면 높은 음에서
+  // 반올림 오차가 그대로 음정 오차가 된다(E5에서 ±15센트). 올패스로 남은 소수점을 맞춘다.
+  const period = sampleRate / freq;
+  const n = Math.max(2, Math.floor(period - 0.5 - 0.1));
+  const d = period - 0.5 - n; // 0.1 ≤ d < 1.1
+  const c = (1 - d) / (1 + d);
   const ring = new Float32Array(n);
   // 들뜬 잡음 → 살짝 저역 통과해 픽 어택을 부드럽게
   let prev = 0;
   for (let i = 0; i < n; i++) {
-    const r = Math.random() * 2 - 1;
+    const r = random() * 2 - 1;
     prev = kind === 'harmonic' ? r * 0.3 + prev * 0.7 : r * 0.6 + prev * 0.4;
     ring[i] = prev;
   }
   const decay = kind === 'pm' ? 0.93 : kind === 'dead' ? 0.8 : kind === 'harmonic' ? 0.999 : 0.996;
   let idx = 0;
+  let last = 0; // 바로 전에 읽은 값 (평균 필터용)
+  let apIn = 0; // 올패스 이전 입력·출력
+  let apOut = 0;
   for (let i = 0; i < len; i++) {
-    const a = ring[idx];
-    const b = ring[(idx + 1) % n];
-    out[i] = a;
-    ring[idx] = decay * 0.5 * (a + b);
+    const s = ring[idx];
+    out[i] = s;
+    const avg = decay * 0.5 * (s + last);
+    last = s;
+    const ap = c * avg + apIn - c * apOut;
+    apIn = avg;
+    apOut = ap;
+    ring[idx] = ap;
     idx = (idx + 1) % n;
   }
   return out;
