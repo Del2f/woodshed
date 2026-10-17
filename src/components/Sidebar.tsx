@@ -31,12 +31,13 @@ const GROUPS: { label: string; items: Item[] }[] = [
   },
 ];
 
-export function Sidebar() {
+/** compact: 아이콘만 (플레이어처럼 넓게 쓰는 화면). 마우스를 올리면 이름이 툴팁으로 */
+export function Sidebar({ compact = false }: { compact?: boolean }) {
   const { store, session } = useStore();
   const cloud = store.kind === 'supabase';
 
   return (
-    <nav className="sidebar" aria-label="주 메뉴">
+    <nav className={`sidebar${compact ? ' compact' : ''}`} aria-label="주 메뉴">
       <Link to="/" className="brand">
         <span className="brand-mark">
           <Icon name="pick" size={18} />
@@ -49,9 +50,9 @@ export function Sidebar() {
           <div className="nav-label">{g.label}</div>
           <div className="nav-list">
             {g.items.map((it) => (
-              <NavLink key={it.to} to={it.to} end={it.end} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+              <NavLink key={it.to} to={it.to} end={it.end} title={compact ? it.label : undefined} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
                 <Icon name={it.icon} />
-                {it.label}
+                <span className="nav-text">{it.label}</span>
                 {it.soon && <span className="nav-soon">곧</span>}
               </NavLink>
             ))}
@@ -59,7 +60,7 @@ export function Sidebar() {
         </div>
       ))}
 
-      <Link to="/settings" className="status-card">
+      <Link to="/settings" className="status-card" title={compact ? (cloud ? '클라우드에 저장 중' : '이 브라우저에만 저장 중') : undefined}>
         <span className="status-line">
           <span className={`dot ${cloud ? 'green' : 'orange'}`} />
           {cloud ? '클라우드에 저장 중' : '이 브라우저에만 저장 중'}

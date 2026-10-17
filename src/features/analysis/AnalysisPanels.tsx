@@ -1,6 +1,5 @@
 import { memo, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Icon } from '../../components/Icon';
 import { Segmented, Switch } from '../../components/controls';
 import { Fretboard, FretboardLegend, type FretboardMode } from '../../components/Fretboard';
 import type { EngineHealth } from '../../lib/engine';
@@ -15,19 +14,22 @@ export function AnalyzeCard({
   canAnalyze,
   job,
   onAnalyze,
+  bare = false,
 }: {
   health: EngineHealth | null;
   analysis: SongAnalysis | null;
   canAnalyze: boolean;
   job: { step: string; progress: number; error: string | null } | null;
   onAnalyze: (separate: boolean) => void;
+  /** 다른 카드 안에 넣을 때 — 카드 테두리 없이 */
+  bare?: boolean;
 }) {
   const sepAvailable = !!health?.features.separation;
   const [separate, setSeparate] = useState(true);
   const running = !!job && !job.error && job.progress < 1;
 
   return (
-    <section className={`card${analysis ? '' : ' accent'}`} aria-label="음원 분석" style={{ flex: '1 1 320px' }}>
+    <section className={bare ? 'analyze-bare' : `card${analysis ? '' : ' accent'}`} aria-label="음원 분석" style={bare ? undefined : { flex: '1 1 320px' }}>
       <div className="card-head">
         <h2 className="title-s">{analysis ? '분석 결과' : '이 곡 분석하기'}</h2>
         <span className="status-line" style={{ fontSize: 12 }}>
@@ -87,58 +89,7 @@ export function AnalyzeCard({
   );
 }
 
-// ── 코드 흐름 ─────────────────────────
-
-export function ChordFlow({
-  chords,
-  keyInfo,
-  downbeats,
-  current,
-  onSeek,
-}: {
-  chords: ChordSegment[];
-  keyInfo: Key | null;
-  downbeats: number[];
-  current: number;
-  onSeek: (t: number) => void;
-}) {
-  const playable = useMemo(() => chords.filter((c) => c.label !== 'N'), [chords]);
-  let idx = playable.findIndex((c) => current >= c.start && current < c.end);
-  if (idx < 0) idx = Math.max(0, playable.findIndex((c) => c.start > current) - 1);
-  const from = Math.max(0, idx - 2);
-  const view = playable.slice(from, from + 9);
-
-  return (
-    <section className="card" aria-label="코드 흐름" style={{ padding: '24px 28px' }}>
-      <div className="card-head">
-        <h2 className="title-s">코드 흐름</h2>
-        <span className="muted" style={{ fontSize: 13 }}>
-          {keyInfo ? `숫자는 ${keyInfo.tonicName} ${keyInfo.mode === 'minor' ? '마이너' : '메이저'} 키 안에서의 역할 · 눌러서 이동` : '눌러서 그 위치로 이동'}
-        </span>
-      </div>
-      {view.length === 0 ? (
-        <p className="muted" style={{ margin: 0 }}>코드를 찾지 못했어요.</p>
-      ) : (
-        <div className="chord-flow">
-          {view.map((seg, i) => {
-            const absolute = from + i;
-            const chord = parseChord(seg.label);
-            const state = absolute === idx && current >= seg.start ? ' now' : absolute < idx ? ' past' : '';
-            return (
-              <button key={`${seg.start}-${seg.label}`} type="button" className={`chord-block${state}`} onClick={() => onSeek(seg.start)} aria-current={state === ' now' ? 'true' : undefined}>
-                <span className="bar">마디 {barAt(seg.start, downbeats)}</span>
-                <span className="name">{seg.label}</span>
-                <span className="roman">{chord && keyInfo ? romanNumeral(chord, keyInfo) : ' '}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ── 지금 코드: 지판 + 설명 ─────────────────────────
+// ── 지금 코드: 코드 흐름 + 지판 + 설명 (한 카드) ─────────────────────────
 
 const MODES: { value: FretboardMode; label: string }[] = [
   { value: 'tones', label: '코드톤' },
@@ -154,53 +105,85 @@ const TONE_STYLE: Record<string, { bg: string; fg: string }> = {
   b7: { bg: '#BF5AF2', fg: '#000' },
 };
 
-export const ChordNow = memo(function ChordNow({ label, keyInfo, strings }: { label: string | null; keyInfo: Key | null; strings: number[] }) {
+/** 앞뒤 코드 흐름(지난 1개 + 지금 + 다음 4개). 눌러서 그 위치로 */
+function ChordStrip({ chords, keyInfo, downbeats, current, onSeek }: { chords: ChordSegment[]; keyInfo: Key | null; downbeats: number[]; current: number; onSeek: (t: number) => void }) {
+  const playable = useMemo(() => chords.filter((c) => c.label !== 'N'), [chords]);
+  let idx = playable.findIndex((c) => current >= c.start && current < c.end);
+  if (idx < 0) idx = Math.max(0, playable.findIndex((c) => c.start > current) - 1);
+  const from = Math.max(0, idx - 1);
+  const view = playable.slice(from, from + 6);
+  if (!view.length) return null;
+  return (
+    <div className="chord-strip" role="list" aria-label="코드 흐름">
+      {view.map((seg, i) => {
+        const absolute = from + i;
+        const chord = parseChord(seg.label);
+        const state = absolute === idx && current >= seg.start ? ' now' : absolute < idx ? ' past' : '';
+        return (
+          <button key={`${seg.start}-${seg.label}`} type="button" role="listitem" className={`chord-chip${state}`} onClick={() => onSeek(seg.start)} aria-current={state === ' now' ? 'true' : undefined} title={`마디 ${barAt(seg.start, downbeats)}로 이동`}>
+            <span className="name">{seg.label}</span>
+            <span className="roman">{chord && keyInfo ? romanNumeral(chord, keyInfo) : ' '}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export const ChordPanel = memo(function ChordPanel({
+  label,
+  keyInfo,
+  strings,
+  chords,
+  downbeats,
+  current,
+  onSeek,
+}: {
+  label: string | null;
+  keyInfo: Key | null;
+  strings: number[];
+  chords: ChordSegment[];
+  downbeats: number[];
+  current: number;
+  onSeek: (t: number) => void;
+}) {
   const [mode, setMode] = useState<FretboardMode>('tones');
   const chord = label ? parseChord(label) : null;
   const scale = useMemo(() => (chord ? scaleForChord(chord, keyInfo) : null), [chord?.label, keyInfo?.tonic, keyInfo?.mode]);
   const info = chord ? explainChord(chord, keyInfo) : null;
 
   return (
-    <div className="row">
-      <section className="card" aria-label="지판" style={{ flex: '3 1 600px', padding: '24px 28px', gap: 18 }}>
-        <div className="card-head" style={{ alignItems: 'center' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <h2 className="title-s">지판 위의 {chord ? chord.label : '코드'}</h2>
-            <span className="muted" style={{ fontSize: 13 }}>{scale ? `${scale.name} 위에 코드톤 표시` : '코드가 없는 구간이에요'}</span>
-          </div>
-          <Segmented label="지판 표시 방식" options={MODES} value={mode} onChange={setMode} />
-        </div>
-        <Fretboard strings={strings} chord={chord} scale={scale} mode={mode} />
-        <FretboardLegend />
-      </section>
-
-      <aside className="card accent" aria-label="지금 코드 설명" style={{ flex: '1 1 300px', gap: 14 }}>
-        <span className="eyebrow" style={{ fontSize: 13, letterSpacing: '0.04em' }}>지금 코드</span>
-        {chord && info ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-              <span style={{ fontSize: 48, fontWeight: 700, letterSpacing: '-0.04em' }}>{chord.label}</span>
-              {info.roman && <span style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-3)' }}>{info.roman}</span>}
-            </div>
-            <div className="chips" style={{ gap: 6 }}>
+    <section className="card chord-panel" aria-label="지금 코드와 지판">
+      <div className="card-head" style={{ alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+          <span className="eyebrow" style={{ fontSize: 13 }}>지금 코드</span>
+          <span style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.04em', lineHeight: 1 }}>{chord ? chord.label : '—'}</span>
+          {info?.roman && <span style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-3)' }}>{info.roman}</span>}
+          {chord && (
+            <span className="chips" style={{ gap: 6 }}>
               {chordTones(chord).map((t) => (
                 <span key={t.pc} className="tone-pill" style={{ background: TONE_STYLE[t.fn].bg, color: TONE_STYLE[t.fn].fg }}>
                   {t.name} · {FN_LABEL[t.fn]}
                 </span>
               ))}
-            </div>
-            <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: '#e5e5ea' }}>{info.role}</p>
-            <p style={{ margin: 0, padding: 14, borderRadius: 14, background: 'rgba(0,0,0,0.35)', fontSize: 14, lineHeight: 1.6, color: 'var(--text-2)' }}>
-              <strong style={{ color: 'var(--accent-text)' }}>솔로 팁</strong> {info.tip}
-            </p>
-            <span className="muted" style={{ fontSize: 13, marginTop: 'auto' }}>
-              <Icon name="book" size={14} /> 이론 커리큘럼(레슨 06 코드톤 타겟팅)은 v0.4에서 제공돼요
             </span>
-          </>
+          )}
+        </div>
+        <Segmented label="지판 표시 방식" options={MODES} value={mode} onChange={setMode} />
+      </div>
+      <ChordStrip chords={chords} keyInfo={keyInfo} downbeats={downbeats} current={current} onSeek={onSeek} />
+      <Fretboard strings={strings} chord={chord} scale={scale} mode={mode} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: '10px 20px' }}>
+        <FretboardLegend />
+        {chord && info ? (
+          <p style={{ margin: 0, flex: '1 1 320px', fontSize: 14, lineHeight: 1.6, color: 'var(--text-2)' }}>
+            {scale ? `${scale.name} 위에 코드톤. ` : ''}
+            {info.role} <strong style={{ color: 'var(--accent-text)' }}>솔로 팁</strong> {info.tip}
+          </p>
         ) : (
-          <p className="lead" style={{ fontSize: 14 }}>잠깐 쉬어 가는 구간이에요. 재생하면 코드에 맞춰 바뀌어요.</p>
+          <p className="muted" style={{ margin: 0, fontSize: 14 }}>잠깐 쉬어 가는 구간이에요. 재생하면 코드에 맞춰 바뀌어요.</p>
         )}
-      </aside>
-    </div>
+      </div>
+    </section>
   );
 });

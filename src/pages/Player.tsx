@@ -22,7 +22,7 @@ import { anchoredScroll, clampZoom, markerStride, nudge, sliderToZoom, zoomToSli
 import { relativeDay, tileColor } from '../lib/songs';
 import { TUNINGS, type LoopSection, type Song, type SongAnalysis } from '../lib/store/types';
 import { clampRate, DEFAULT_TRAINER, MAX_RATE, MIN_RATE, rateAfterLoop, type TrainerConfig } from '../features/player/speedTrainer';
-import { AnalyzeCard, ChordFlow, ChordNow } from '../features/analysis/AnalysisPanels';
+import { AnalyzeCard, ChordPanel } from '../features/analysis/AnalysisPanels';
 import { TUNING_PRESETS } from '../features/tuner/pitch';
 import { analyzeWithEngine, useEngine } from '../lib/engine';
 import { deleteStems, hasStems, loadStem } from '../lib/stemCache';
@@ -33,6 +33,15 @@ type Source = 'original' | 'guitar' | 'no_guitar';
 
 const REGION_COLOR = 'rgba(255, 159, 10, 0.16)';
 const SPEED_PRESETS = [0.5, 0.7, 0.85, 1, 1.1];
+const VOLUME_KEY = 'woodshed.volume';
+function readVolume(): number {
+  try {
+    const v = Number(localStorage.getItem(VOLUME_KEY));
+    return Number.isFinite(v) && localStorage.getItem(VOLUME_KEY) !== null ? Math.min(1, Math.max(0, v)) : 1;
+  } catch {
+    return 1;
+  }
+}
 /** 이 시간 이상 연습했을 때만 기록 (초) */
 const MIN_SESSION = 15;
 /** 오래 켜 두면 중간중간 나눠서 저장 (초) */
@@ -185,6 +194,12 @@ export function Player() {
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [rate, setRate] = useState(1);
+  /** 0–1. 이 브라우저에 기억해 둔다 */
+  const [volume, setVolume] = useState(readVolume);
+  const [muted, setMuted] = useState(false);
+  /** 오른쪽 아래 카드: 분석 / 곡 정보 */
+  const [sideTab, setSideTab] = useState<'analysis' | 'info'>('analysis');
+  const seekTo = useCallback((t: number) => wsRef.current?.setTime(t), []);
   const [loopOn, setLoopOn] = useState(false);
   const [range, setRange] = useState<Range | null>(null);
   const [activeLoopId, setActiveLoopId] = useState<string | null>(null);
@@ -207,6 +222,7 @@ export function Player() {
   // ── 확대·축소 ──
   const minimapEl = useRef<HTMLDivElement>(null);
   const markersRef = useRef<RegionsPlugin | null>(null);
+  const chordLaneRef = useRef<RegionsPlugin | null>(null);
   /** 0 = 전체 보기, 그 외 = 1초당 픽셀 */
   const [zoom, setZoom] = useState(0);
   const zoomRef = useRef(0);
@@ -223,6 +239,17 @@ export function Player() {
     rateRef.current = rate;
     wsRef.current?.setPlaybackRate(rate, true);
   }, [rate]);
+
+  const volumeRef = useRef(volume);
+  volumeRef.current = muted ? 0 : volume;
+  useEffect(() => {
+    wsRef.current?.setVolume(muted ? 0 : volume);
+    try {
+      localStorage.setItem(VOLUME_KEY, String(volume));
+    } catch {
+      /* 저장 못 해도 이번 재생에는 반영됨 */
+    }
+  }, [volume, muted]);
 
   // ── 연습 시간 기록 ──
   const storeRef = useRef(store);
@@ -278,6 +305,7 @@ export function Player() {
     if (!playUrl || !waveEl.current || !minimapEl.current) return;
     const regions = RegionsPlugin.create();
     const markers = RegionsPlugin.create(); // 마디선 전용 — 반복 구간과 섞이지 않게 따로
+    const chordLane = RegionsPlugin.create(); // 파형 위 코드 이름 줄
     const ws = WaveSurfer.create({
       container: waveEl.current,
       url: playUrl,
@@ -295,6 +323,7 @@ export function Player() {
       plugins: [
         regions,
         markers,
+        chordLane,
         TimelinePlugin.create({
           height: 18,
           formatTimeCallback: (s) => (Math.abs(s - Math.round(s)) < 1e-6 ? formatTime(s) : formatTimePrecise(s)),
@@ -316,6 +345,7 @@ export function Player() {
     wsRef.current = ws;
     regionsRef.current = regions;
     markersRef.current = markers;
+    chordLaneRef.current = chordLane;
     const disableDrag = regions.enableDragSelection({ color: REGION_COLOR });
 
     const applyRegion = (r: Region) => setRange({ start: r.start, end: r.end });
@@ -324,6 +354,7 @@ export function Player() {
       setDuration(d);
       setReady(true);
       ws.setPlaybackRate(rateRef.current, true);
+      ws.setVolume(volumeRef.current);
       // 트랙을 바꿔 끼워도 확대 배율 유지
       if (zoomRef.current > 0) ws.zoom(zoomRef.current);
       const resume = resumeRef.current;
@@ -420,6 +451,7 @@ export function Player() {
       wsRef.current = null;
       regionsRef.current = null;
       markersRef.current = null;
+      chordLaneRef.current = null;
       setReady(false);
       setPlaying(false);
     };
@@ -603,6 +635,25 @@ export function Player() {
     });
   }, [ready, analysis?.downbeats, pxPerSec, playUrl]);
 
+  // 파형 위 코드 줄 — 확대·스크롤을 그대로 따라가도록 영역(region)으로 그린다. 좁으면 이름을 생략
+  useEffect(() => {
+    const lane = chordLaneRef.current;
+    if (!lane || !ready) return;
+    lane.clearRegions();
+    if (!analysis?.chords.length || !pxPerSec) return;
+    for (const seg of analysis.chords) {
+      if (seg.label === 'N') continue;
+      const wide = (seg.end - seg.start) * pxPerSec >= 30;
+      const content = document.createElement('span');
+      // 파형은 Shadow DOM 안이라 전역 CSS가 닿지 않는다 — 마디 번호 아래 줄에 작은 이름표로
+      content.style.cssText =
+        "display:block;margin:17px 0 0 3px;padding:1px 5px;width:max-content;max-width:calc(100% - 6px);overflow:hidden;border-radius:5px;background:rgba(255,159,10,0.16);font:700 11px -apple-system,'Pretendard',sans-serif;color:#FFB340;pointer-events:none;";
+      content.textContent = wide ? seg.label : '';
+      if (!wide) content.style.background = 'transparent';
+      lane.addRegion({ start: seg.start, end: seg.end, color: 'rgba(0,0,0,0)', drag: false, resize: false, content });
+    }
+  }, [ready, analysis?.chords, pxPerSec, playUrl]);
+
   /** 반복 구간의 시작(A)·끝(B)을 한 칸씩 옮긴다 */
   const nudgeEdge = useCallback(
     (edge: 'start' | 'end', dir: 1 | -1) => {
@@ -703,6 +754,11 @@ export function Player() {
       else if (k === 'arrowright') seekBy(5);
       else if (k === '[') setRate((r) => clampRate(r - 0.05));
       else if (k === ']') setRate((r) => clampRate(r + 0.05));
+      else if (k === 'arrowup' || k === 'arrowdown') {
+        e.preventDefault();
+        setMuted(false);
+        setVolume((v) => Math.round(Math.min(1, Math.max(0, v + (k === 'arrowup' ? 0.05 : -0.05))) * 100) / 100);
+      } else if (k === 'm') setMuted((m) => !m);
       else if (k === 'a') markA();
       else if (k === 'b') markB();
       else if (k === 'home' || k === '0') toStart();
@@ -830,21 +886,50 @@ export function Player() {
   const rangeLen = range ? range.end - range.start : 0;
   const activeLoop = loops.find((l) => l.id === activeLoopId) ?? null;
 
+  const volPct = Math.round((muted ? 0 : volume) * 100);
+
   return (
-    <div className="page" style={{ gap: 24 }}>
-      <header className="page-head">
-        <div>
-          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 15 }}>
-            <Icon name="back" size={18} strokeWidth={2} />
-            라이브러리
-          </Link>
-          <h1 className="title-l">{song.title}</h1>
-          <div className="chips">
-            {song.artist && <span className="chip">{song.artist}</span>}
-            <span className="chip">{keyLabel(song.musicalKey)}</span>
-            {song.bpm ? <span className="chip">{song.bpm} BPM</span> : null}
-            <span className="chip">{song.tuning}</span>
-          </div>
+    <div className="page wide player-page">
+      <header className="player-head">
+        <Link to="/" className="icon-btn ghost" aria-label="라이브러리로" title="라이브러리">
+          <Icon name="back" size={20} strokeWidth={2} />
+        </Link>
+        <h1 className="title-m player-title">{song.title}</h1>
+        <div className="chips">
+          {song.artist && <span className="chip">{song.artist}</span>}
+          <span className="chip">{keyLabel(song.musicalKey)}</span>
+          {song.bpm ? <span className="chip">{song.bpm} BPM</span> : null}
+          <span className="chip">{song.tuning}</span>
+        </div>
+        <div className="player-head-right">
+          {analysis && analysis.stems.length > 0 ? (
+            <>
+              <span className="muted" role="status" style={{ fontSize: 12 }}>
+                {stemProgress !== null
+                  ? `분리 트랙 받는 중 ${Math.round(stemProgress * 100)}%`
+                  : stemsSaved
+                    ? '분리 트랙 저장됨'
+                    : engine.online
+                      ? '분리 트랙 저장 중…'
+                      : '처음 한 번은 엔진을 켜고 받아야 해요'}
+              </span>
+              <Segmented
+                label="들을 트랙"
+                surface
+                value={source}
+                onChange={switchSource}
+                options={[
+                  { value: 'original', label: '원곡' },
+                  { value: 'guitar', label: '기타만' },
+                  { value: 'no_guitar', label: '기타 빼고' },
+                ]}
+              />
+            </>
+          ) : analysis ? (
+            <span className="muted" style={{ fontSize: 13 }}>
+              기타 분리를 켜고 다시 분석하면 기타만·기타 빼고 들을 수 있어요
+            </span>
+          ) : null}
         </div>
       </header>
 
@@ -887,65 +972,40 @@ export function Player() {
         </div>
       )}
 
-      <section className="card lg" aria-label="파형과 반복 구간" style={{ gap: 14 }}>
-        {analysis && (
-          <div className="card-head" style={{ alignItems: 'center' }}>
-            {analysis.stems.length > 0 ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <Segmented
-                  label="들을 트랙"
-                  surface
-                  value={source}
-                  onChange={switchSource}
-                  options={[
-                    { value: 'original', label: '원곡' },
-                    { value: 'guitar', label: '기타만' },
-                    { value: 'no_guitar', label: '기타 빼고' },
-                  ]}
-                />
-                <span className="muted" role="status" style={{ fontSize: 12 }}>
-                  {stemProgress !== null
-                    ? `분리 트랙 받는 중 ${Math.round(stemProgress * 100)}% — 그동안 원곡이 재생돼요`
-                    : stemsSaved
-                      ? '분리 트랙이 이 브라우저에 저장돼 있어요 (엔진 없이 재생)'
-                      : engine.online
-                        ? '분리 트랙 저장 중…'
-                        : '처음 한 번은 엔진을 켜고 받아야 해요'}
-                </span>
-              </div>
+      <section className="card wave-card" aria-label="파형과 반복 구간">
+        <div className="card-head" style={{ alignItems: 'center' }}>
+          <span className="muted" style={{ fontSize: 13 }}>
+            {range ? (
+              <span className="mono" style={{ color: 'var(--accent-text)' }}>
+                A {formatTimePrecise(range.start)} → B {formatTimePrecise(range.end)} · {rangeLen.toFixed(2)}초
+              </span>
+            ) : pendingStart !== null ? (
+              <span className="mono" style={{ color: 'var(--accent-text)' }}>
+                A {formatTime(pendingStart)} → B를 지정하세요 (B 키)
+              </span>
             ) : (
-              <span className="muted" style={{ fontSize: 13 }}>기타 분리를 켜고 다시 분석하면 기타만·기타 빼고 들을 수 있어요</span>
+              '파형을 드래그해 반복 구간을 만드세요 · 구간 양 끝을 끌어 조절'
             )}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: 'var(--text-3)' }}>
+          </span>
+          {analysis && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-3)' }}>
               구간을 박자에 맞추기
               <Switch label="구간을 박자에 맞추기" checked={snap} onChange={setSnap} />
             </label>
-          </div>
-        )}
-        <div className="card-head">
-          <span className="muted" style={{ fontSize: 13 }}>
-            파형을 드래그해 반복 구간을 만드세요 · 구간 양 끝을 끌어 조절
-          </span>
-          {range && (
-            <span className="mono" style={{ fontSize: 13, color: 'var(--accent-text)' }}>
-              A {formatTimePrecise(range.start)} → B {formatTimePrecise(range.end)} · {rangeLen.toFixed(2)}초
-            </span>
-          )}
-          {pendingStart !== null && !range && (
-            <span className="mono" style={{ fontSize: 13, color: 'var(--accent-text)' }}>
-              A {formatTime(pendingStart)} → B를 지정하세요 (B 키)
-            </span>
           )}
         </div>
         <div ref={waveEl} className="waveform">
-          {fileState === 'ok' && !ready && <p className="muted" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', margin: 0 }}>파형 그리는 중…</p>}
+          {fileState === 'ok' && !ready && (
+            <p className="muted" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', margin: 0 }}>
+              파형 그리는 중…
+            </p>
+          )}
           {fileState === 'loading' && <p className="muted" style={{ margin: 0 }}>음원 찾는 중…</p>}
         </div>
         {/* 확대했을 때만 보이는 전체 미니맵 — 주황 창을 끌어 보이는 범위를 옮긴다 */}
         <div className={`minimap${zoom > 0 ? ' open' : ''}`} aria-hidden={zoom === 0}>
           <div ref={minimapEl} />
         </div>
-
         <div className="zoom-bar">
           <div className="zoom-controls" role="group" aria-label="파형 확대·축소">
             <button type="button" className="icon-btn" aria-label="축소 (-)" title="축소 (-)" onClick={() => zoomBy(1 / 1.6)} disabled={!ready || zoom === 0}>
@@ -1013,81 +1073,110 @@ export function Player() {
             </div>
           )}
         </div>
-
-        <div className="wave-times">
-          <span>{zoom > 0 ? formatTimePrecise(current) : formatTime(current)}</span>
-          <span>
-            {bar ? `마디 ${bar} · ` : ''}
-            {Math.round(rate * 100)}%
-          </span>
-          <span>{formatTime(duration)}</span>
-        </div>
       </section>
 
-      <div className="row">
-        <section className="card" aria-label="재생 제어" style={{ flex: '3 1 520px', gap: 22, padding: '24px 28px' }}>
-          <div className="transport">
-            <button type="button" className={`icon-btn${loopOn ? ' on' : ''}`} aria-pressed={loopOn} aria-label="구간 반복 (L)" title="구간 반복 (L)" onClick={() => setLoopOn((v) => !v)} disabled={!range}>
-              <Icon name="repeat" strokeWidth={2} />
-            </button>
-            <button type="button" className="icon-btn ghost" aria-label="처음으로 (0)" title="구간 처음으로 (0)" onClick={toStart} disabled={!ready}>
-              <Icon name="prev" size={24} />
-            </button>
-            <button type="button" className="play-btn" aria-label={playing ? '일시정지 (Space)' : '재생 (Space)'} onClick={togglePlay} disabled={!ready}>
-              <Icon name={playing ? 'pause' : 'play'} size={28} />
-            </button>
-            <button type="button" className="icon-btn ghost" aria-label="5초 앞으로 (→)" title="5초 앞으로 (→)" onClick={() => seekBy(5)} disabled={!ready}>
-              <Icon name="next" size={24} />
-            </button>
-            <button type="button" className="icon-btn" aria-label="구간 해제" title="구간 해제" onClick={clearLoop} disabled={!range && pendingStart === null}>
-              <Icon name="trash" size={18} />
-            </button>
-          </div>
+      <section className="card transport-bar" aria-label="재생 제어">
+        <div className="transport">
+          <button
+            type="button"
+            className={`icon-btn${loopOn ? ' on' : ''}`}
+            aria-pressed={loopOn}
+            aria-label="구간 반복 (L)"
+            title="구간 반복 (L)"
+            onClick={() => setLoopOn((v) => !v)}
+            disabled={!range}
+          >
+            <Icon name="repeat" strokeWidth={2} />
+          </button>
+          <button type="button" className="icon-btn ghost" aria-label="처음으로 (0)" title="구간 처음으로 (0)" onClick={toStart} disabled={!ready}>
+            <Icon name="prev" size={22} />
+          </button>
+          <button type="button" className="play-btn md" aria-label={playing ? '일시정지 (Space)' : '재생 (Space)'} onClick={togglePlay} disabled={!ready}>
+            <Icon name={playing ? 'pause' : 'play'} size={24} />
+          </button>
+          <button type="button" className="icon-btn ghost" aria-label="5초 앞으로 (→)" title="5초 앞으로 (→)" onClick={() => seekBy(5)} disabled={!ready}>
+            <Icon name="next" size={22} />
+          </button>
+          <button type="button" className="icon-btn" aria-label="구간 해제" title="구간 해제" onClick={clearLoop} disabled={!range && pendingStart === null}>
+            <Icon name="trash" size={18} />
+          </button>
+        </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div className="card-head">
-              <span style={{ fontWeight: 600 }}>재생 속도</span>
-              <span className="muted" style={{ fontSize: 13 }}>음정은 그대로 · [ ] 키로 5%씩</span>
-            </div>
-            <Segmented
-              label="재생 속도"
-              fill
-              value={SPEED_PRESETS.includes(rate) ? rate : -1}
-              onChange={(v) => setRate(v)}
-              options={SPEED_PRESETS.map((v) => ({ value: v, label: `${Math.round(v * 100)}%` }))}
+        <div className="tb-time mono">
+          <strong>{zoom > 0 ? formatTimePrecise(current) : formatTime(current)}</strong>
+          <span className="muted"> / {formatTime(duration)}</span>
+          {bar ? <span className="muted"> · 마디 {bar}</span> : null}
+        </div>
+
+        <div className="tb-speed">
+          <span className="tb-label">속도</span>
+          <Segmented
+            label="재생 속도"
+            value={SPEED_PRESETS.includes(rate) ? rate : -1}
+            onChange={(v) => setRate(v)}
+            options={SPEED_PRESETS.map((v) => ({ value: v, label: `${Math.round(v * 100)}%` }))}
+          />
+          <label className="tb-slider" title="음정은 그대로 · [ ] 키로 5%씩">
+            <span className="sr-only">세밀한 속도</span>
+            <input type="range" min={MIN_RATE} max={MAX_RATE} step={0.01} value={rate} onChange={(e) => setRate(clampRate(Number(e.target.value)))} />
+            <span className="mono" style={{ width: 44, textAlign: 'right', fontWeight: 700 }}>
+              {Math.round(rate * 100)}%
+            </span>
+          </label>
+        </div>
+
+        <div className="tb-volume">
+          <button
+            type="button"
+            className="icon-btn ghost sm"
+            aria-label={muted ? '소리 켜기 (M)' : '음소거 (M)'}
+            title={muted ? '소리 켜기 (M)' : '음소거 (M)'}
+            aria-pressed={muted}
+            onClick={() => setMuted((m) => !m)}
+          >
+            <Icon name={muted || volume === 0 ? 'volumeOff' : 'volume'} size={18} strokeWidth={2} />
+          </button>
+          <label className="tb-slider" title="볼륨 · ↑ ↓ 키로 5%씩">
+            <span className="sr-only">볼륨</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={muted ? 0 : volume}
+              onChange={(e) => {
+                setMuted(false);
+                setVolume(Number(e.target.value));
+              }}
             />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <span className="sr-only">세밀한 속도</span>
-              <input type="range" min={MIN_RATE} max={MAX_RATE} step={0.01} value={rate} onChange={(e) => setRate(clampRate(Number(e.target.value)))} />
-              <span className="mono" style={{ width: 52, textAlign: 'right', fontWeight: 700 }}>
-                {Math.round(rate * 100)}%
-              </span>
-            </label>
-          </div>
+            <span className="mono" style={{ width: 40, textAlign: 'right', fontSize: 13 }}>
+              {volPct}%
+            </span>
+          </label>
+        </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 16, borderRadius: 16, background: 'var(--surface-2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <span style={{ fontWeight: 600 }}>스피드 트레이너</span>
-                <span className="muted" style={{ fontSize: 13 }}>
-                  {trainer.enabled
-                    ? `${trainer.everyLoops}번 반복마다 +${Math.round(trainer.step * 100)}% · 목표 ${Math.round(trainer.target * 100)}% · 지금 ${loopCount}회째`
-                    : '구간을 반복할 때마다 조금씩 빨라져요'}
-                </span>
-              </div>
-              <Switch
-                label="스피드 트레이너"
-                checked={trainer.enabled}
-                onChange={(v) => {
-                  // 켜는 순간부터 반복 횟수를 다시 센다
-                  loopCountRef.current = 0;
-                  setLoopCount(0);
-                  setTrainer((t) => ({ ...t, enabled: v }));
-                }}
-              />
-            </div>
+        <div className="tb-trainer">
+          <Switch
+            label="스피드 트레이너"
+            checked={trainer.enabled}
+            onChange={(v) => {
+              // 켜는 순간부터 반복 횟수를 다시 센다
+              loopCountRef.current = 0;
+              setLoopCount(0);
+              setTrainer((t) => ({ ...t, enabled: v }));
+            }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>스피드 트레이너</span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {trainer.enabled
+                ? `${trainer.everyLoops}번마다 +${Math.round(trainer.step * 100)}% → ${Math.round(trainer.target * 100)}% · ${loopCount}회째`
+                : '반복할 때마다 조금씩 빨라져요'}
+            </span>
+          </div>
+        </div>
             {trainer.enabled && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+              <div className="tb-trainer-fields" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
                 <label className="field">
                   <span>올리는 폭</span>
                   <select className="select" value={trainer.step} onChange={(e) => setTrainer((t) => ({ ...t, step: Number(e.target.value) }))}>
@@ -1114,13 +1203,34 @@ export function Player() {
                 </label>
               </div>
             )}
-          </div>
-        </section>
+      </section>
 
-        <section className="card" aria-label="저장한 구간" style={{ flex: '2 1 340px' }}>
+      <div className="player-grid">
+        {analysis ? (
+          <ChordPanel
+            label={currentChord}
+            keyInfo={keyInfo}
+            strings={strings}
+            chords={analysis.chords}
+            downbeats={analysis.downbeats}
+            current={current}
+            onSeek={seekTo}
+          />
+        ) : (
+          <section className="card chord-panel" aria-label="지금 코드와 지판">
+            <h2 className="title-s">지금 코드 · 지판</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.6 }}>
+              곡을 분석하면 재생 위치에 맞춰 지금 코드, 다음 코드, 지판 위 코드톤과 어울리는 스케일이 여기에 나와요. 오른쪽 <strong>분석</strong>에서 시작하세요.
+            </p>
+          </section>
+        )}
+
+        <section className="card loops-card" aria-label="저장한 구간">
           <div className="card-head">
             <h2 className="title-s">저장한 구간</h2>
-            <span className="muted" style={{ fontSize: 13 }}>속도까지 함께 저장돼요</span>
+            <span className="muted" style={{ fontSize: 13 }}>
+              속도까지 함께 저장돼요
+            </span>
           </div>
           {range && !activeLoop && (
             <form
@@ -1172,26 +1282,26 @@ export function Player() {
             <span className="kbd">Ctrl</span>+휠 · <span className="kbd">=</span> <span className="kbd">-</span> 확대·축소 · <span className="kbd">Z</span> 구간 확대
           </div>
         </section>
-      </div>
 
-      {analysis && (
-        <>
-          <ChordFlow chords={analysis.chords} keyInfo={keyInfo} downbeats={analysis.downbeats} current={current} onSeek={(t) => wsRef.current?.setTime(t)} />
-          <ChordNow label={currentChord} keyInfo={keyInfo} strings={strings} />
-        </>
-      )}
-
-      <div className="row">
-        <AnalyzeCard health={engine.health} analysis={analysis} canAnalyze={!!file} job={job} onAnalyze={runAnalysis} />
-
-        <section className="card" aria-label="곡 정보" style={{ flex: '2 1 420px' }}>
-          <div className="card-head">
-            <h2 className="title-s">곡 정보</h2>
-            <span className="muted" style={{ fontSize: 13 }}>
-              {analysis ? `분석: ${analysis.key.name} · ${Math.round(analysis.bpm)} BPM — 직접 고친 값이 우선이에요` : '분석하면 빈 칸이 자동으로 채워져요'}
-            </span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <section className="card side-card" aria-label="곡 정보와 분석">
+          <Segmented
+            label="곡 정보와 분석"
+            fill
+            value={sideTab}
+            onChange={setSideTab}
+            options={[
+              { value: 'analysis' as const, label: '분석' },
+              { value: 'info' as const, label: '곡 정보' },
+            ]}
+          />
+          {sideTab === 'analysis' ? (
+            <AnalyzeCard health={engine.health} analysis={analysis} canAnalyze={!!file} job={job} onAnalyze={runAnalysis} bare />
+          ) : (
+            <>
+              <span className="muted" style={{ fontSize: 13 }}>
+                {analysis ? `분석: ${analysis.key.name} · ${Math.round(analysis.bpm)} BPM — 직접 고친 값이 우선이에요` : '분석하면 빈 칸이 자동으로 채워져요'}
+              </span>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
             <label className="field">
               <span>제목</span>
               <input className="input" defaultValue={song.title} onBlur={(e) => e.target.value.trim() && e.target.value !== song.title && patchSong({ title: e.target.value.trim() })} />
@@ -1236,6 +1346,8 @@ export function Player() {
           <button type="button" className="btn danger sm" style={{ alignSelf: 'flex-start' }} onClick={removeSong}>
             라이브러리에서 빼기
           </button>
+            </>
+          )}
         </section>
       </div>
     </div>

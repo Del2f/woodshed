@@ -39,7 +39,7 @@ export function Fretboard({
 
   return (
     <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
-      <div className="fretboard" style={{ minWidth: 60 * frets }} role="img" aria-label={`지판: ${chord ? chord.label : ''} ${scale ? scale.name : ''}`}>
+      <div className="fretboard" style={{ minWidth: 46 * frets }} role="img" aria-label={`지판: ${chord ? chord.label : ''} ${scale ? scale.name : ''}`}>
         {rows.map((open, si) => (
           <div key={si} className="fb-row" style={{ gridTemplateColumns: cols }}>
             {Array.from({ length: frets + 1 }, (_, f) => {
@@ -75,7 +75,7 @@ export function Fretboard({
           </div>
         ))}
       </div>
-      <div className="fb-row fb-nums" style={{ gridTemplateColumns: cols, minWidth: 60 * frets }}>
+      <div className="fb-row fb-nums" style={{ gridTemplateColumns: cols, minWidth: 46 * frets }}>
         {Array.from({ length: frets + 1 }, (_, f) => (
           <span key={f} className={MARKERS.has(f) ? 'mark' : undefined}>
             {f === 0 ? '개방' : f}
