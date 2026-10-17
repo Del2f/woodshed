@@ -22,6 +22,8 @@ export function DraftFromAudio({ lick, song, analysis, onApply }: { lick: Lick; 
   const { health, online } = useEngine();
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [sens, setSens] = useState<Sensitivity>('mid');
+  // 솔로·멜로디는 한 번에 한 음만 따라가서 섞여 든 리듬 기타를 걸러 낸다
+  const [mode, setMode] = useState<'solo' | 'poly'>('solo');
   const src = lick.source!;
   const tab = lick.tab;
   const hasStem = !!analysis?.stems.includes('guitar');
@@ -63,6 +65,7 @@ export function DraftFromAudio({ lick, song, analysis, onApply }: { lick: Lick; 
         source,
         minMidi: Math.min(...tab.tuning),
         maxMidi: Math.max(...tab.tuning) + MAX_FRET - 2,
+        mode,
       });
       apply(res.notes, sens, fromStem ? 'guitar' : res.source);
     } catch (e) {
@@ -86,6 +89,19 @@ export function DraftFromAudio({ lick, song, analysis, onApply }: { lick: Lick; 
           <Icon name="wave" size={16} strokeWidth={2} />
           {state.kind === 'working' ? state.step : state.kind === 'done' ? '다시 받아 적기' : '초안 만들기'}
         </button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <Segmented
+          label="받아 적을 내용"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'solo', label: '솔로·멜로디 (한 음씩)' },
+            { value: 'poly', label: '리프·코드 (화음까지)' },
+          ]}
+        />
+        {state.kind === 'done' && <span className="muted" style={{ fontSize: 13 }}>바꾼 뒤 다시 받아 적기를 누르세요</span>}
       </div>
 
       {!online && <span className="muted" style={{ fontSize: 13 }}>분석 엔진이 꺼져 있어요. 엔진을 켜면 쓸 수 있어요.</span>}

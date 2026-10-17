@@ -46,7 +46,7 @@
 
 1. Python 3.10 이상 설치 ([python.org](https://www.python.org/downloads/))
 2. [`engine/start.bat`](engine/start.bat) 더블클릭 — 처음 한 번은 패키지 설치로 몇 분 걸립니다. 창이 열려 있는 동안 엔진이 켜져 있습니다.
-3. (선택) 기타 트랙 분리: [`engine/install-separation.bat`](engine/install-separation.bat) 한 번 실행 (PyTorch + Demucs, 약 3GB). NVIDIA GPU가 있으면 곡당 10~20초.
+3. (선택) 기타 트랙 분리: [`engine/install-separation.bat`](engine/install-separation.bat) 한 번 실행 (PyTorch + BS-RoFormer, 약 3GB + 모델 700MB). NVIDIA GPU가 있으면 3~4분 곡당 1분 안팎. 예전(Demucs)에 분리한 곡은 플레이어에서 *다시 분석*하면 새 모델로 다시 분리됩니다.
 4. 처음 분석할 때 Chrome이 **로컬 네트워크 접근** 권한을 물으면 *허용*.
 
 | 분석 | 방식 |
@@ -55,8 +55,8 @@
 | 베이스 | 저음 대역에서 '가장 낮게 울리는 음' — 디스토션 배음은 기본음 위에만 생겨 근음을 가장 잘 알려 줌. 기타 분리를 켜면 기타 뺀 트랙에서 찾음 |
 | 키 | 크롬마 · 베이스 분포 · 코드 근음 분포 × Krumhansl-Kessler, 나란한조는 첫 코드·베이스로 으뜸음 판별 |
 | 코드 | 박 단위 크롬마 × 배음을 넣은 템플릿 + 베이스 근음 + Viterbi, 3도가 잡음 위로 솟지 않으면 파워코드 |
-| 기타 분리 | Demucs `htdemucs_6s` (선택) |
-| 음 받아 적기 | Spotify [Basic Pitch](https://github.com/spotify/basic-pitch) 모델(Apache-2.0)을 ONNX로 실행 → 시작점·음 길이 찾기, 배음 유령 음 제거, 이어지는 음높이 변화는 벤딩으로. 줄·프렛 배치는 브라우저에서 (비터비) |
+| 기타 분리 | **BS-RoFormer SW** (선택, 6분리 — 로컬에서 쓸 수 있는 공개 모델 중 기타 분리 평가 최상위). [bs-roformer-infer](https://github.com/openmirlab/bs-roformer-infer)(MIT)로 실행, 모델 파일(약 700MB)은 처음 분리할 때 `~/.woodshed/models`에 받음(가중치 라이선스는 '알 수 없음'). 예비: Demucs `htdemucs_6s` |
+| 음 받아 적기 | **솔로 모드**: 비터비로 가장 두드러진 한 줄기만 따라가 섞여 든 리듬 기타를 거르고, 음높이 곡선으로 벤딩·해머링 구분. **리프·코드 모드**: Spotify [Basic Pitch](https://github.com/spotify/basic-pitch) 모델(Apache-2.0)을 ONNX로 실행 → 시작점·음 길이 찾기, 배음 유령 음 제거, 이어지는 음높이 변화는 벤딩으로. 줄·프렛 배치는 브라우저에서 (비터비) |
 
 결과는 `~/.woodshed/cache`에 캐시되어 같은 파일은 바로 다시 열립니다. 분리된 기타 트랙은 분석 직후 브라우저에도 저장되므로, **재생할 때는 엔진이 필요 없습니다**(설정 화면에서 저장 공간 확인·비우기). 분석 결과(JSON)는 Supabase `analyses` 표에도 저장되어 다른 PC에서도 코드 흐름을 볼 수 있습니다.
 

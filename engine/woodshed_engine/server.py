@@ -94,8 +94,8 @@ def _cached(file_hash: str, separate: bool) -> dict[str, Any] | None:
         return None
     if data.get("version") != ANALYSIS_VERSION:
         return None
-    if separate and not data.get("stems"):
-        return None
+    if separate and (not data.get("stems") or data.get("separator") != separation.current()):
+        return None  # 분리를 안 했거나 예전 모델로 분리한 결과 — 새 모델로 다시
     return data
 
 
@@ -115,7 +115,7 @@ def _run(job: Job, audio: Path) -> None:
         if job.separate:
             # 분리를 먼저 하면 '기타 뺀 트랙'의 베이스로 근음을 찾을 수 있다 — 디스토션에 훨씬 강하다
             report("기타 트랙 분리 중 (GPU가 있으면 빨라요)", 0.05)
-            produced = separation.separate_guitar(wav, stem_dir)
+            produced = separation.separate_guitar(wav, stem_dir, lambda step: report(step, 0.05))
             stems = list(separation.STEMS)
             bass_path = str(produced["no_guitar"])
         result = analyze(str(wav), lambda step, p: report(step, 0.5 + p * 0.5) if job.separate else report(step, p), bass_path)
@@ -126,6 +126,7 @@ def _run(job: Job, audio: Path) -> None:
             "fileHash": job.file_hash,
             **result,
             "stems": stems,
+            "separator": separation.current() if job.separate else None,
         }
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
@@ -150,7 +151,12 @@ def health() -> dict[str, Any]:
         "ok": True,
         "version": __version__,
         "analysisVersion": ANALYSIS_VERSION,
-        "features": {"separation": sep, "gpu": separation.gpu_name() if sep else None, "transcribe": transcribe.available()},
+        "features": {
+            "separation": sep,
+            "separator": separation.current(),
+            "gpu": separation.gpu_name() if sep else None,
+            "transcribe": transcribe.available(),
+        },
     }
 
 
@@ -214,12 +220,15 @@ async def transcribe_range(
     source: str = Form("auto"),
     min_midi: int = Form(28),
     max_midi: int = Form(100),
+    mode: str = Form("poly"),
 ) -> dict[str, Any]:
     """구간의 음을 받아 적는다. 이 곡의 분리된 기타 트랙이 있으면(source=auto|guitar) 그걸 쓴다 — 훨씬 정확하다"""
     if not transcribe.available():
         raise HTTPException(400, "음 받아 적기 기능이 없는 엔진이에요. start.bat 을 다시 실행해 업데이트해 주세요")
     if not (0 <= start < end) or end - start > MAX_TRANSCRIBE_SEC:
         raise HTTPException(400, f"구간은 {MAX_TRANSCRIBE_SEC}초 이하로 골라 주세요")
+    if mode not in ("poly", "solo"):
+        raise HTTPException(400, "mode는 poly, solo 중 하나예요")
     if source not in ("auto", "guitar", "mix"):
         raise HTTPException(400, "source는 auto, guitar, mix 중 하나예요")
     data = await file.read()
@@ -235,13 +244,13 @@ async def transcribe_range(
 
     def work() -> list[dict[str, Any]]:
         if use_guitar:
-            return transcribe.transcribe_file(guitar, start, end, min_midi, max_midi)
+            return transcribe.transcribe_file(guitar, start, end, min_midi, max_midi, mode)
         ext = Path(file.filename or "audio").suffix.lower() or ".audio"
         upload = CACHE_DIR / "uploads" / f"tr-{uuid.uuid4().hex}{ext}"
         upload.parent.mkdir(parents=True, exist_ok=True)
         upload.write_bytes(data)
         try:
-            return transcribe.transcribe_file(upload, start, end, min_midi, max_midi)
+            return transcribe.transcribe_file(upload, start, end, min_midi, max_midi, mode)
         finally:
             upload.unlink(missing_ok=True)
 
@@ -250,7 +259,7 @@ async def transcribe_range(
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         raise HTTPException(500, f"받아 적기에 실패했어요: {e}") from e
-    return {"source": "guitar" if use_guitar else "mix", "fileHash": file_hash, "notes": notes}
+    return {"source": "guitar" if use_guitar else "mix", "mode": mode, "fileHash": file_hash, "notes": notes}
 
 
 def main() -> None:
@@ -258,7 +267,7 @@ def main() -> None:
 
     port = int(os.environ.get("WOODSHED_PORT", "8765"))
     print(f"\n  Woodshed 분석 엔진 {__version__}  →  http://127.0.0.1:{port}")
-    print(f"  기타 분리: {'사용 가능' if separation.available() else '미설치 (install-separation 실행 시 사용 가능)'}")
+    print(f"  기타 분리: {separation.current() or '미설치 (install-separation 실행 시 사용 가능)'}")
     print(f"  음 받아 적기: {'사용 가능' if transcribe.available() else '없음 (start.bat 다시 실행)'}")
     print(f"  캐시 폴더: {CACHE_DIR}\n  이 창을 닫으면 엔진이 꺼집니다.\n")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

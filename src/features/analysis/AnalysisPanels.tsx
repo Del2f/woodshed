@@ -59,6 +59,11 @@ export function AnalyzeCard({
           </div>
         </div>
       )}
+      {analysis && analysis.stems.length > 0 && health?.features.separator && (analysis.separator ?? 'htdemucs_6s') !== health.features.separator && !running && (
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--accent-text)' }}>
+          더 정확한 기타 분리 모델이 생겼어요. 기타 분리를 켜고 <strong>다시 분석</strong>하면 기타 트랙을 새로 만들어요.
+        </p>
+      )}
       {job?.error && <p style={{ margin: 0, color: 'var(--red)', fontSize: 14, lineHeight: 1.5 }}>{job.error}</p>}
 
       {health ? (

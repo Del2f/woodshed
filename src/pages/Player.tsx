@@ -786,6 +786,8 @@ export function Player() {
     try {
       const result = await analyzeWithEngine(file, { separate }, (step, progress) => setJob({ step, progress, error: null }));
       const a: SongAnalysis = { ...result, songId: song.id };
+      // 다른 모델로 새로 분리했으면 브라우저에 저장해 둔 예전 기타 트랙을 지운다 (아래에서 새로 받아 둠)
+      if (a.stems.length && (analysis?.separator ?? null) !== (a.separator ?? null)) await deleteStems(a.fileHash);
       await store.saveAnalysis(a);
       setAnalysis(a);
       setJob(null);

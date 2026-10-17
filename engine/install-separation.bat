@@ -9,7 +9,8 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
-echo [Woodshed] PyTorch(NVIDIA GPU용, 약 3GB)와 Demucs를 설치합니다.
+echo [Woodshed] PyTorch(NVIDIA GPU용, 약 3GB)와 기타 분리 모델(BS-RoFormer, Demucs)을 설치합니다.
+echo            분리 모델 파일(약 700MB)은 처음 분리할 때 한 번 받아요.
 echo            NVIDIA 그래픽카드가 없으면 CPU로도 동작하지만 곡당 몇 분 걸려요.
 ".venv\Scripts\python.exe" -m pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128 || (pause & exit /b 1)
 ".venv\Scripts\python.exe" -m pip install -r requirements-separation.txt || (pause & exit /b 1)

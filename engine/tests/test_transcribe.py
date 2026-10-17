@@ -66,6 +66,30 @@ def test_bend_reaches_target_pitch(melody):
     assert abs(bent[0]["start"] - 2.25) < 0.08
 
 
+def test_solo_mode_gets_bend_right(melody):
+    notes = [n for n in tr.transcribe_file(melody, 0.4, 3.4, 40, 88, "solo") if n["onset"] >= 0.5]
+    assert [n["midi"] for n in notes] == MELODY + [67]
+    assert notes[-1]["bend"] == 2.0  # 솔로 모드는 피킹한 음(67)과 폭(온음)까지 맞춘다
+
+
+def test_solo_mode_ignores_rhythm_guitar(tmp_path):
+    """낮은 디스토션 파워코드가 깔려도 위의 멜로디만 따라간다"""
+    import librosa
+    from synth_metal import metal_riff
+
+    p = tmp_path / "melody.wav"
+    melody_wav(p, bend_last=False)
+    y, _ = sf.read(str(p))
+    riff = librosa.resample(metal_riff(["E5", "G5"], bpm=120, repeats=1, bass=False, drums=False), orig_sr=22050, target_sr=SR)
+    riff = riff[: len(y)] * 0.15 * np.max(np.abs(y)) / np.max(np.abs(riff))
+    y[: len(riff)] += riff
+    sf.write(str(p), y.astype(np.float32), SR)
+    solo = [n["midi"] for n in tr.transcribe_file(p, 0.4, 2.2, 40, 88, "solo") if n["onset"] >= 0.5]
+    assert solo == MELODY
+    poly = [n["midi"] for n in tr.transcribe_file(p, 0.4, 2.2, 40, 88, "poly") if n["onset"] >= 0.5]
+    assert len(poly) > len(MELODY) + 5  # 화음 모드는 리듬 기타 음까지 적는다
+
+
 def test_range_filters_notes(melody):
     notes = tr.transcribe_file(melody, 0.9, 1.6, 40, 88)
     assert [n["midi"] for n in notes if n["onset"] >= 0.5] == [69, 71, 74]
@@ -122,6 +146,7 @@ def test_api_transcribes_upload(client, melody):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source"] == "mix"
+    assert body["mode"] == "poly"
     assert [x["midi"] for x in body["notes"] if x["onset"] >= 0.5] == [64, 67, 69, 71]
     assert c.get("/health").json()["features"]["transcribe"] is True
 
@@ -151,3 +176,4 @@ def test_api_rejects_bad_ranges(client, melody):
     assert c.post("/transcribe", files=f, data={"start": 2, "end": 1}).status_code == 400
     assert c.post("/transcribe", files=f, data={"start": 0, "end": 90}).status_code == 400
     assert c.post("/transcribe", files=f, data={"start": 0, "end": 1, "source": "guitar"}).status_code == 400
+    assert c.post("/transcribe", files=f, data={"start": 0, "end": 1, "mode": "chords"}).status_code == 400

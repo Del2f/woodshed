@@ -32,7 +32,7 @@ export interface EngineHealth {
   version: string;
   analysisVersion: number;
   /** transcribe: 0.3.0 엔진부터 (구간 음 받아 적기) */
-  features: { separation: boolean; gpu: string | null; transcribe?: boolean };
+  features: { separation: boolean; gpu: string | null; transcribe?: boolean; separator?: string | null };
 }
 
 export async function checkEngine(timeoutMs = 2000): Promise<EngineHealth | null> {
@@ -131,7 +131,7 @@ export function stemUrl(fileHash: string, name: string): string {
 export async function transcribeWithEngine(
   audio: Blob,
   fileName: string,
-  opts: { start: number; end: number; source: 'auto' | 'mix'; minMidi: number; maxMidi: number },
+  opts: { start: number; end: number; source: 'auto' | 'mix'; minMidi: number; maxMidi: number; mode: 'solo' | 'poly' },
   signal?: AbortSignal,
 ): Promise<{ source: 'guitar' | 'mix'; notes: HeardNote[] }> {
   const form = new FormData();
@@ -141,6 +141,7 @@ export async function transcribeWithEngine(
   form.append('source', opts.source);
   form.append('min_midi', String(opts.minMidi));
   form.append('max_midi', String(opts.maxMidi));
+  form.append('mode', opts.mode);
   let r: Response;
   try {
     r = await fetch(`${engineUrl()}/transcribe`, { method: 'POST', body: form, signal });

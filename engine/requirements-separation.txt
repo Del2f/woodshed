@@ -1,3 +1,5 @@
 # (선택) 기타 트랙 분리 — install-separation.bat 이 PyTorch(CUDA)를 먼저 설치한 뒤 이 목록을 설치한다.
-# torchaudio 2.9부터 저장 방식이 바뀌어 Demucs가 깨지므로 2.8로 고정.
+# 1순위 BS-RoFormer SW: bs-roformer-infer(MIT). PyPI 배포가 중단돼 GitHub 고정 커밋을 받는다(git 없이도 설치되도록 zip).
+bs-roformer-infer @ https://github.com/openmirlab/bs-roformer-infer/archive/95c8de7b0b091d00f064d694bf916a21866c32f5.zip
+# 2순위(예비) Demucs. torchaudio 2.9부터 저장 방식이 바뀌어 Demucs가 깨지므로 PyTorch는 2.8로 고정.
 demucs>=4.0.1,<5

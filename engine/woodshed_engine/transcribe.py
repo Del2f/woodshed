@@ -296,15 +296,141 @@ def load_segment(path: str | Path, start: float, end: float) -> np.ndarray:
 PAD = 0.25  # 구간 앞뒤로 조금 더 읽어서 경계의 음도 제대로 잡는다
 
 
-def transcribe_file(path: str | Path, start: float, end: float, min_midi: int = 21, max_midi: int = 108) -> list[dict]:
-    """곡 시간 기준 음 목록. 구간 시작 직전(0.05초)부터 끝 전까지 시작한 음만"""
+# ── 솔로 모드: 한 번에 한 음 ──
+# 분리된 기타 트랙에는 리듬 기타도 같이 들어 있다. 솔로는 매 순간 한 음이니, 가장 두드러진 한 줄기만 따라간다.
+
+SOLO_ON = 0.3  # 이 세기 이상이면 '소리 남'
+SOLO_LIFT = 0.04
+
+
+def solo_notes(out: dict[str, np.ndarray], min_midi: int = 21, max_midi: int = 108, min_note_sec: float = 0.05) -> list[Note]:
+    frames = out["note"]
+    onsets = out["onset"]
+    contour = out["contour"]
+    n = len(frames)
+    if n < 3:
+        return []
+    lo, hi = max(0, min_midi - MIDI_OFFSET), min(N_NOTES, max_midi - MIDI_OFFSET + 1)
+    act = frames[:, lo:hi]
+    k = act.shape[1]
+
+    # 1) 비터비: 프레임마다 한 음(또는 쉼). 큰 도약일수록 벌점 → 리듬 기타로 튀는 것을 막는다
+    rest = k  # 마지막 상태 = 쉼
+    eps = 1e-4
+    # 솔로는 보통 리듬 기타보다 위에서 논다 — 높은 음에 반음당 조금씩 가산점
+    lift = SOLO_LIFT * np.arange(k)[None, :]
+    emit = np.concatenate([np.log(act + eps) + lift, np.full((n, 1), np.log(SOLO_ON) + SOLO_LIFT * k * 0.5)], axis=1)
+    idx = np.arange(k)
+    jump = np.abs(idx[:, None] - idx[None, :])
+    trans = np.zeros((k + 1, k + 1))
+    trans[:k, :k] = -0.08 * jump - (jump > 0) * 0.6
+    trans[:k, rest] = trans[rest, :k] = -1.0
+    score = emit[0].copy()
+    back = np.zeros((n, k + 1), dtype=np.int32)
+    for t in range(1, n):
+        cand = score[:, None] + trans
+        back[t] = np.argmax(cand, axis=0)
+        score = cand[back[t], np.arange(k + 1)] + emit[t]
+    path = np.empty(n, dtype=np.int32)
+    path[-1] = int(np.argmax(score))
+    for t in range(n - 1, 0, -1):
+        path[t - 1] = back[t, path[t]]
+
+    # 2) 음높이 곡선(1/3반음 → 소수) — 벤딩·비브라토를 보기 위해
+    pitch = np.full(n, np.nan)
+    for t in range(n):
+        if path[t] == rest:
+            continue
+        midi = path[t] + lo + MIDI_OFFSET
+        c = int(round(CONTOUR_BINS * (midi - MIDI_OFFSET)))
+        a, b = max(0, c - 4), min(contour.shape[1], c + 5)  # ±1.3반음
+        w = contour[t, a:b]
+        pitch[t] = MIDI_OFFSET + (a + int(np.argmax(w))) / CONTOUR_BINS if w.max() > 0.1 else midi
+
+    # 3) 음 나누기: 쉼, 새 피킹(시작점), 계단식 음높이 변화(해머링·풀링)에서 자른다. 미끄러지는 변화는 벤딩
+    times = frame_times(n)
+    min_len = max(2, int(round(min_note_sec * FPS)))
+    notes: list[Note] = []
+    t = 0
+    while t < n:
+        if path[t] == rest:
+            t += 1
+            continue
+        s = t
+        base = int(path[t])
+        t += 1
+        while t < n and path[t] != rest:
+            p = int(path[t])
+            picked = onsets[t, p + lo] >= 0.5 and onsets[t, p + lo] >= onsets[max(0, t - 1), p + lo] and t - s >= min_len
+            if picked:
+                break
+            if p != base:
+                # 바뀐 음이 3프레임 넘게 유지되고, 사이에 중간 음높이가 거의 없으면 '계단' = 새 음
+                held = t + 3 <= n and np.all(path[t : t + 3] == p)
+                between = pitch[max(s, t - 3) : t]
+                glide = np.sum(np.abs(between - np.round(between)) > 0.2) >= 2 if len(between) else False
+                if held and not glide and not (p > base and p - base <= 3 and _rising(pitch, s, t + 3)):
+                    break
+            t += 1
+        e = t
+        if e - s < min_len:
+            continue
+        seg_path = path[s:e]
+        # 피킹한 음 = 처음 몇 프레임에서 가장 많이 나온 음 (어택 순간의 음높이 흔들림에 덜 민감)
+        head = seg_path[: min(5, len(seg_path))]
+        note_midi = int(np.bincount(head).argmax()) + lo + MIDI_OFFSET
+        bend = 0.0
+        if seg_path.max() > np.bincount(head).argmax():
+            # 같은 음 안에서 더 높은 음까지 미끄러져 올라갔으면 벤딩. 3프레임 이상 머문 최고 음높이 기준
+            seg_pitch = pitch[s:e]
+            top = float(np.nanmax([np.nanmin(seg_pitch[i : i + 3]) for i in range(max(1, len(seg_pitch) - 2))]))
+            bend = round((top - note_midi) * 2) / 2
+        on = float(onsets[max(0, s - 1) : s + 3, base + lo].max())
+        notes.append(
+            Note(
+                start=float(times[s]),
+                end=float(times[min(e, n - 1)]),
+                midi=note_midi,
+                amp=float(np.mean(act[s:e, base])),
+                onset=on,
+                bend=float(min(2.0, bend)) if bend >= 0.75 else 0.0,
+            )
+        )
+    return _drop_below_line(notes)
+
+
+def _drop_below_line(notes: list[Note]) -> list[Note]:
+    """솔로 줄기에서 한 옥타브 넘게 아래로 떨어진 음은 쉬는 사이 끼어든 리듬 기타로 본다"""
+    strong = [x.midi for x in notes if x.onset >= 0.5]
+    if len(strong) < 4:
+        return notes
+    floor = float(np.median(strong)) - 12
+    return [x for x in notes if x.midi >= floor]
+
+
+def _rising(pitch: np.ndarray, s: int, e: int) -> bool:
+    """s부터 e까지 음높이가 미끄러지듯 올라가는 중인가 (벤딩)"""
+    seg = pitch[s:e]
+    seg = seg[~np.isnan(seg)]
+    if len(seg) < 4:
+        return False
+    frac = np.abs(seg - np.round(seg)) > 0.2
+    return bool(np.sum(frac) >= 2 and seg[-1] > seg[0] + 0.5)
+
+
+def transcribe_file(
+    path: str | Path, start: float, end: float, min_midi: int = 21, max_midi: int = 108, mode: str = "poly"
+) -> list[dict]:
+    """곡 시간 기준 음 목록. 구간 시작 직전(0.05초)부터 끝 전까지 시작한 음만.
+    mode='solo'면 한 번에 한 음만 (솔로·멜로디), 'poly'면 화음까지"""
     seg_start = max(0.0, start - PAD)
     audio = load_segment(path, seg_start, end + PAD)
     peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
     if peak < 1e-4:
         return []
     audio = audio / peak * 0.9  # 녹음 크기와 상관없이 같은 기준으로
-    notes = output_to_notes(model_output(audio), min_midi=min_midi, max_midi=max_midi)
+    out = model_output(audio)
+    notes = solo_notes(out, min_midi, max_midi) if mode == "solo" else output_to_notes(out, min_midi=min_midi, max_midi=max_midi)
     res = []
     for n in notes:
         t = n.start + seg_start

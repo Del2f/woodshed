@@ -57,6 +57,8 @@ export interface SongAnalysis {
   chords: ChordSegment[];
   /** 엔진에 저장된 분리 트랙 이름 ('guitar', 'no_guitar') */
   stems: string[];
+  /** 분리에 쓴 모델 ('bs_roformer_sw', 'htdemucs_6s'). 엔진 0.4 이전 결과에는 없음 = Demucs */
+  separator?: string | null;
 }
 
 /** 카피한 프레이즈 하나 — 타브 + (있으면) 원곡 구간 + 복습 일정 */
