@@ -21,8 +21,9 @@ from typing import Any
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
-from . import ANALYSIS_VERSION, __version__, separation
+from . import ANALYSIS_VERSION, __version__, separation, transcribe
 from .analysis import analyze
 from .audio_io import decode_to_wav
 
@@ -149,7 +150,7 @@ def health() -> dict[str, Any]:
         "ok": True,
         "version": __version__,
         "analysisVersion": ANALYSIS_VERSION,
-        "features": {"separation": sep, "gpu": separation.gpu_name() if sep else None},
+        "features": {"separation": sep, "gpu": separation.gpu_name() if sep else None, "transcribe": transcribe.available()},
     }
 
 
@@ -202,12 +203,63 @@ def stem(file_hash: str, name: str) -> FileResponse:
     return FileResponse(path, media_type="audio/flac")
 
 
+MAX_TRANSCRIBE_SEC = 60
+
+
+@app.post("/transcribe")
+async def transcribe_range(
+    file: UploadFile = File(...),
+    start: float = Form(...),
+    end: float = Form(...),
+    source: str = Form("auto"),
+    min_midi: int = Form(28),
+    max_midi: int = Form(100),
+) -> dict[str, Any]:
+    """구간의 음을 받아 적는다. 이 곡의 분리된 기타 트랙이 있으면(source=auto|guitar) 그걸 쓴다 — 훨씬 정확하다"""
+    if not transcribe.available():
+        raise HTTPException(400, "음 받아 적기 기능이 없는 엔진이에요. start.bat 을 다시 실행해 업데이트해 주세요")
+    if not (0 <= start < end) or end - start > MAX_TRANSCRIBE_SEC:
+        raise HTTPException(400, f"구간은 {MAX_TRANSCRIBE_SEC}초 이하로 골라 주세요")
+    if source not in ("auto", "guitar", "mix"):
+        raise HTTPException(400, "source는 auto, guitar, mix 중 하나예요")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "빈 파일이에요")
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "파일이 너무 커요 (최대 400MB)")
+    file_hash = hashlib.sha1(data).hexdigest()
+    guitar = _paths(file_hash)[1] / "guitar.flac"
+    use_guitar = source != "mix" and guitar.exists()
+    if source == "guitar" and not use_guitar:
+        raise HTTPException(400, "이 곡은 기타 트랙을 분리한 적이 없어요")
+
+    def work() -> list[dict[str, Any]]:
+        if use_guitar:
+            return transcribe.transcribe_file(guitar, start, end, min_midi, max_midi)
+        ext = Path(file.filename or "audio").suffix.lower() or ".audio"
+        upload = CACHE_DIR / "uploads" / f"tr-{uuid.uuid4().hex}{ext}"
+        upload.parent.mkdir(parents=True, exist_ok=True)
+        upload.write_bytes(data)
+        try:
+            return transcribe.transcribe_file(upload, start, end, min_midi, max_midi)
+        finally:
+            upload.unlink(missing_ok=True)
+
+    try:
+        notes = await run_in_threadpool(work)
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        raise HTTPException(500, f"받아 적기에 실패했어요: {e}") from e
+    return {"source": "guitar" if use_guitar else "mix", "fileHash": file_hash, "notes": notes}
+
+
 def main() -> None:
     import uvicorn  # noqa: PLC0415
 
     port = int(os.environ.get("WOODSHED_PORT", "8765"))
     print(f"\n  Woodshed 분석 엔진 {__version__}  →  http://127.0.0.1:{port}")
     print(f"  기타 분리: {'사용 가능' if separation.available() else '미설치 (install-separation 실행 시 사용 가능)'}")
+    print(f"  음 받아 적기: {'사용 가능' if transcribe.available() else '없음 (start.bat 다시 실행)'}")
     print(f"  캐시 폴더: {CACHE_DIR}\n  이 창을 닫으면 엔진이 꺼집니다.\n")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 

@@ -272,6 +272,8 @@ input[type='range'] { accent-color: var(--accent); width: 100%; }
 
 /* ── 타브 악보 (v0.3) ─────────────────── */
 .tab-staff { display: flex; flex-wrap: wrap; row-gap: 18px; overflow-x: auto; padding-bottom: 4px; }
+.tab-staff.lines { flex-direction: column; flex-wrap: nowrap; }
+.tab-line { display: flex; }
 .tab-names { display: flex; flex-direction: column; margin-right: 6px; font-family: var(--mono); font-size: 12px; color: var(--text-4); }
 .tab-names span { display: flex; align-items: center; justify-content: flex-end; min-width: 14px; }
 .tab-num { display: block; height: 18px; font-family: var(--mono); font-size: 11px; color: var(--text-4); padding-left: 4px; }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SongAnalysis } from './store/types';
+import type { HeardNote } from '../features/tab/transcribe';
 
 /**
  * 내 PC에서 돌아가는 분석 엔진(engine/)과 통신한다.
@@ -30,7 +31,8 @@ export interface EngineHealth {
   ok: boolean;
   version: string;
   analysisVersion: number;
-  features: { separation: boolean; gpu: string | null };
+  /** transcribe: 0.3.0 엔진부터 (구간 음 받아 적기) */
+  features: { separation: boolean; gpu: string | null; transcribe?: boolean };
 }
 
 export async function checkEngine(timeoutMs = 2000): Promise<EngineHealth | null> {
@@ -120,4 +122,32 @@ export async function analyzeWithEngine(
 
 export function stemUrl(fileHash: string, name: string): string {
   return `${engineUrl()}/stems/${fileHash}/${name}`;
+}
+
+/**
+ * 구간의 음을 받아 적는다. source='auto'면 엔진에 이 곡의 분리된 기타 트랙이 있을 때 그걸 쓴다.
+ * 이미 기타만 담긴 파일(브라우저에 저장해 둔 분리 트랙)을 보낼 때는 'mix'.
+ */
+export async function transcribeWithEngine(
+  audio: Blob,
+  fileName: string,
+  opts: { start: number; end: number; source: 'auto' | 'mix'; minMidi: number; maxMidi: number },
+  signal?: AbortSignal,
+): Promise<{ source: 'guitar' | 'mix'; notes: HeardNote[] }> {
+  const form = new FormData();
+  form.append('file', audio, fileName);
+  form.append('start', String(opts.start));
+  form.append('end', String(opts.end));
+  form.append('source', opts.source);
+  form.append('min_midi', String(opts.minMidi));
+  form.append('max_midi', String(opts.maxMidi));
+  let r: Response;
+  try {
+    r = await fetch(`${engineUrl()}/transcribe`, { method: 'POST', body: form, signal });
+  } catch {
+    throw new Error('분석 엔진에 연결하지 못했어요. 엔진이 켜져 있는지 확인해 주세요.');
+  }
+  if (r.status === 404) throw new Error('엔진이 옛 버전이에요. 엔진 창을 닫고 start.bat 을 다시 실행해 업데이트해 주세요.');
+  if (!r.ok) throw new Error(await readError(r));
+  return r.json();
 }

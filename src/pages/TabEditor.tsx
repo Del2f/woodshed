@@ -25,6 +25,7 @@ import {
 import { TabStaff, type Cursor } from '../features/tab/TabStaff';
 import { TabPlayer } from '../features/tab/synth';
 import { SourceLoop } from '../features/licks/SourceLoop';
+import { DraftFromAudio } from '../features/tab/DraftFromAudio';
 import { SUGGESTED_TAGS } from '../features/licks/licks';
 
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -371,6 +372,7 @@ export function TabEditor() {
       </header>
 
       {lick.source && song && <SourceLoop lick={lick} song={song} analysis={analysisQ.data ?? null} />}
+      {lick.source && song && <DraftFromAudio lick={lick} song={song} analysis={analysisQ.data ?? null} onApply={commit} />}
 
       <section className="card" aria-label="타브 설정" style={{ gap: 14, padding: '16px 20px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>

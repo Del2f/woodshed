@@ -26,15 +26,18 @@ export function SourceLoop({ lick, song, analysis }: { lick: Lick; song: Song; a
   const [pos, setPos] = useState(src.start);
 
   const load = useCallback(async () => {
-    const r = await resolveSongFile(song.fileName);
-    if (r.status === 'need-permission') return setNeed(r.handle);
-    if (r.status === 'missing') return setMissing(true);
-    setNeed(null);
-    const next: Partial<Record<Track, string>> = { original: URL.createObjectURL(r.file) };
+    const next: Partial<Record<Track, string>> = {};
     if (analysis?.stems.includes('guitar')) {
       const g = await getCachedStem(analysis.fileHash, 'guitar');
       if (g) next.guitar = URL.createObjectURL(g);
     }
+    const r = await resolveSongFile(song.fileName);
+    if (r.status === 'ok') next.original = URL.createObjectURL(r.file);
+    // 원곡을 못 열어도 저장해 둔 기타 트랙이 있으면 그걸로 듣는다
+    if (!next.original && next.guitar) setTrack('guitar');
+    else if (r.status === 'need-permission') setNeed(r.handle);
+    else if (r.status === 'missing') setMissing(true);
+    if (r.status === 'ok') setNeed(null);
     setUrls(next);
   }, [song.fileName, analysis]);
 
@@ -103,10 +106,11 @@ export function SourceLoop({ lick, song, analysis }: { lick: Lick; song: Song; a
           <span style={{ fontWeight: 700 }}>원곡 구간</span>
           <Link to={`/player/${song.id}`} className="muted" style={{ fontSize: 13 }}>
             {song.title} · {formatTimePrecise(src.start)}–{formatTimePrecise(src.end)}
+            {!urls.original && urls.guitar ? ' · 원곡 파일이 없어 기타 트랙으로 들어요' : ''}
           </Link>
         </div>
         <div className="chips" style={{ alignItems: 'center', gap: 10 }}>
-          {urls.guitar && (
+          {urls.guitar && urls.original && (
             <Segmented label="원곡 트랙" surface value={track} onChange={setTrack} options={[{ value: 'original', label: '원곡' }, { value: 'guitar', label: '기타만' }]} />
           )}
           <Segmented
@@ -119,15 +123,15 @@ export function SourceLoop({ lick, song, analysis }: { lick: Lick; song: Song; a
         </div>
       </div>
 
-      {need ? (
+      {need && !urls.guitar ? (
         <button type="button" className="btn sm primary" style={{ alignSelf: 'flex-start' }} onClick={async () => (await requestFolderAccess(need)) && load()}>
           “{need.name}” 읽기 허용
         </button>
-      ) : missing ? (
+      ) : missing && !urls.guitar ? (
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>원곡 파일을 찾지 못했어요. 플레이어에서 파일을 다시 연결해 주세요.</p>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button type="button" className="icon-btn" aria-label={playing ? '원곡 멈춤' : '원곡 구간 반복 재생'} onClick={toggle} disabled={!urls.original}>
+          <button type="button" className="icon-btn" aria-label={playing ? '원곡 멈춤' : '원곡 구간 반복 재생'} onClick={toggle} disabled={!urls[track]}>
             <Icon name={playing ? 'pause' : 'play'} size={18} />
           </button>
           <div className="progress" style={{ flex: 1 }}>
