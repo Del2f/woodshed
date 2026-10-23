@@ -6,11 +6,11 @@ import { Metronome } from './pages/Metronome';
 import { Tuner } from './pages/Tuner';
 import { Settings } from './pages/Settings';
 import { Engine } from './pages/Engine';
-import { ComingSoon } from './pages/ComingSoon';
 import { Licks } from './pages/Licks';
 import { Review } from './pages/Review';
 import { TabEditor } from './pages/TabEditor';
 import { Tabs } from './pages/Tabs';
+import { Learn, Lesson } from './pages/Learn';
 
 export function App() {
   return (
@@ -39,17 +39,8 @@ function Shell() {
           <Route path="/tabs/:lickId" element={<TabEditor />} />
           <Route path="/licks" element={<Licks />} />
           <Route path="/licks/review" element={<Review />} />
-          <Route
-            path="/learn"
-            element={
-              <ComingSoon
-                eyebrow="이론 커리큘럼"
-                title="손은 이미 알아요. 이름만 붙이면 돼요"
-                version="v0.4"
-                points={['지판 음 이름부터 코드톤 타겟팅, 메탈 스케일까지 9개 레슨', '내 라이브러리의 곡을 예제로 연결', '퀴즈와 백킹 트랙 연습']}
-              />
-            }
-          />
+          <Route path="/learn" element={<Learn />} />
+          <Route path="/learn/:lessonId" element={<Lesson />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

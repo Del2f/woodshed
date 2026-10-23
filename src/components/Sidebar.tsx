@@ -20,7 +20,7 @@ const GROUPS: { label: string; items: Item[] }[] = [
       { to: '/licks', label: '릭 보관함', icon: 'star' },
     ],
   },
-  { label: '배우기', items: [{ to: '/learn', label: '이론 커리큘럼', icon: 'book', soon: true }] },
+  { label: '배우기', items: [{ to: '/learn', label: '이론 커리큘럼', icon: 'book' }] },
   {
     label: '도구',
     items: [

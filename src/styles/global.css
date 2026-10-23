@@ -358,3 +358,43 @@ input[type='range'] { accent-color: var(--accent); width: 100%; }
 .loops-card .loop-list { max-height: 340px; overflow-y: auto; }
 .side-card { gap: 14px; }
 .analyze-bare { display: flex; flex-direction: column; gap: 14px; }
+
+/* ── 이론 커리큘럼 (v0.4) ─────────────────── */
+.lesson-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.lesson-card { padding: 20px; border-radius: 22px; background: var(--surface); border: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 10px; min-width: 0; color: inherit; }
+.lesson-card[aria-disabled] { opacity: 0.55; }
+.lesson-card.ready { border-color: var(--accent-line); transition: border-color 0.2s, transform 0.25s var(--ease); }
+.lesson-card.ready:hover { color: inherit; border-color: var(--accent); transform: translateY(-2px); }
+.lesson-num { width: 36px; height: 36px; border-radius: 18px; display: grid; place-items: center; background: var(--surface-3); font-weight: 700; font-variant-numeric: tabular-nums; }
+.lesson-card.ready .lesson-num { background: var(--accent); color: #000; }
+.lesson-section p { margin: 0; font-size: 15px; line-height: 1.7; color: var(--text-2); }
+.lesson-section p.muted { font-size: 14px; color: var(--text-3); }
+.lesson-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.6; color: var(--text-2); }
+
+.fb-string { display: grid; place-items: center; font-size: 12px; font-family: var(--mono); color: var(--muted); }
+.fb-row.dim .fb-cell { background-image: linear-gradient(#4a4038, #4a4038); }
+.fb-row.dim .fb-string { opacity: 0.4; }
+button.fb-cell { appearance: none; margin: 0; padding: 0; border-top: 0; border-bottom: 0; border-left: 0; color: inherit; font: inherit; cursor: pointer; }
+button.fb-cell::after { content: ''; position: absolute; width: 26px; height: 26px; border-radius: 13px; pointer-events: none; transition: background 0.15s; }
+button.fb-cell:hover:not(:disabled)::after { background: rgba(255, 255, 255, 0.16); }
+button.fb-cell:disabled { cursor: default; }
+.fb-dot.ask { animation: pop 0.25s var(--ease), ask 1.4s ease-in-out 0.25s infinite; }
+@keyframes ask { 50% { box-shadow: 0 0 0 6px rgba(255, 159, 10, 0.25); } }
+
+.quiz-settings { display: flex; flex-wrap: wrap; gap: 16px 24px; }
+.quiz-prompt { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.4; }
+.quiz-prompt .muted { font-size: 15px; font-weight: 500; }
+.quiz-note { color: var(--accent-text); font-size: 26px; }
+.note-pad { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+.note-key {
+  min-height: 56px; border-radius: 14px; border: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--surface-3); color: var(--text); font-size: 18px; font-weight: 700; transition: transform 0.15s var(--ease), background 0.2s;
+}
+.note-key small { font-size: 11px; font-weight: 500; color: var(--text-3); }
+.note-key.sharp { background: var(--surface-2); font-size: 15px; }
+.note-key:hover:not(:disabled) { background: var(--surface-4); }
+.note-key:active:not(:disabled) { transform: scale(0.96); }
+.note-key:disabled { cursor: default; }
+.note-key.good { background: var(--green); color: #000; }
+.note-key.bad { background: var(--red); color: #000; }
+.note-key.good small, .note-key.bad small { color: rgba(0, 0, 0, 0.6); }
