@@ -59,7 +59,7 @@
 
 ```
 음원 파일 (mp3, wav, flac …)         → 내 PC에서 바로 읽음. 어디에도 업로드하지 않음
-곡 · 구간 · 연습 기록 · 분석       → Supabase (로그인 전에는 이 브라우저의 IndexedDB)
+곡 · 구간 · 연습 기록 · 분석         → Supabase (로그인 전에는 이 브라우저의 IndexedDB)
 릭 · 퀴즈 기록                        → Supabase (위와 같음)
 분리된 기타 트랙                      → 엔진 캐시(~/.woodshed/cache) + 브라우저(IndexedDB)
 주간 백업                             → 비공개 GitHub 저장소 Del2f/woodshed-backup
