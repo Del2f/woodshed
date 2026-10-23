@@ -14,7 +14,7 @@ const LANDMARKS = [3, 5, 7, 8, 10, 12];
 const shiftText = (n: number) => (n === 0 ? '같은 프렛' : n > 0 ? `${n}칸 오른쪽` : `${-n}칸 왼쪽`);
 
 /** 레슨 1: 지판 음 이름 */
-export function FretNotesLesson({ strings }: { strings: number[] }) {
+export function FretNotesLesson({ strings, tuningLabel }: { strings: number[]; tuningLabel: string }) {
   const low = [0, 1];
   const lowLabel = low.map((si) => stringNumber(strings, si)).join('·');
 
@@ -131,7 +131,7 @@ export function FretNotesLesson({ strings }: { strings: number[] }) {
       <section className="card lg lesson-section" aria-label="퀴즈">
         <h2 className="title-s">퀴즈</h2>
         <p className="muted">하루 몇 판씩, 정답률보다 &lsquo;생각 없이 바로 떠오르는 속도&rsquo;를 목표로 해요. 평균 2초 안쪽이면 손에 붙은 거예요.</p>
-        <FretQuiz strings={strings} />
+        <FretQuiz strings={strings} tuningLabel={tuningLabel} />
       </section>
     </>
   );

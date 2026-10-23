@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { BackupFile, DataStore, Lick, LoopSection, PracticeSession, Song, SongAnalysis } from './types';
+import type { BackupFile, DataStore, Lick, LoopSection, PracticeSession, QuizResult, Song, SongAnalysis } from './types';
 
 // DB는 snake_case, 앱은 camelCase. user_id는 DB 기본값(auth.uid())과 RLS가 처리한다.
 
@@ -109,6 +109,16 @@ const lickToRow = (l: Lick): LickRow => ({ id: l.id, song_id: l.songId, due_at: 
 // 곡을 지우면 DB가 song_id를 비우므로 그 값을 따른다
 const lickFromRow = (r: LickRow): Lick => ({ ...r.data, songId: r.song_id, source: r.song_id ? r.data.source : null });
 
+// 퀴즈 기록도 내용은 jsonb, 레슨과 끝난 시각만 열로 (레슨별 최근 기록 조회용)
+interface QuizRow {
+  id: string;
+  lesson_id: string;
+  finished_at: string;
+  data: QuizResult;
+}
+
+const quizToRow = (r: QuizResult): QuizRow => ({ id: r.id, lesson_id: r.lessonId, finished_at: r.finishedAt, data: r });
+
 function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
   return res.data as T;
@@ -191,6 +201,17 @@ export class SupabaseStore implements DataStore {
     check(await this.sb.from('licks').delete().eq('id', id));
   }
 
+  async addQuizResult(result: QuizResult): Promise<void> {
+    check(await this.sb.from('quiz_results').upsert(quizToRow(result)));
+  }
+
+  async listQuizResults(lessonId: string): Promise<QuizResult[]> {
+    const rows = check<{ data: QuizResult }[]>(
+      await this.sb.from('quiz_results').select('data').eq('lesson_id', lessonId).order('finished_at', { ascending: false }).limit(200),
+    );
+    return rows.map((r) => r.data);
+  }
+
   async addSession(session: PracticeSession): Promise<void> {
     check(await this.sb.from('practice_sessions').upsert(sessionToRow(session)));
   }
@@ -206,6 +227,7 @@ export class SupabaseStore implements DataStore {
     const sessions = await this.selectAll<SessionRow>('practice_sessions', '*', 'id');
     const analyses = await this.selectAll<{ data: SongAnalysis }>('analyses', 'data', 'song_id');
     const licks = await this.selectAll<LickRow>('licks', '*', 'id');
+    const quiz = await this.selectAll<{ data: QuizResult }>('quiz_results', 'data', 'id');
     return {
       app: 'woodshed',
       version: 1,
@@ -215,6 +237,7 @@ export class SupabaseStore implements DataStore {
       sessions: sessions.map(sessionFromRow),
       analyses: analyses.map((a) => a.data),
       licks: licks.map(lickFromRow),
+      quizResults: quiz.map((r) => r.data),
     };
   }
 
@@ -229,5 +252,7 @@ export class SupabaseStore implements DataStore {
     }
     const licks = backup.licks ?? [];
     if (licks.length) check(await this.sb.from('licks').upsert(licks.map(lickToRow)));
+    const quiz = backup.quizResults ?? [];
+    if (quiz.length) check(await this.sb.from('quiz_results').upsert(quiz.map(quizToRow)));
   }
 }

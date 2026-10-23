@@ -22,5 +22,5 @@ const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshTo
 const backup = await new SupabaseStore(sb).exportAll();
 writeFileSync(out, JSON.stringify(backup, null, 2) + '\n');
 console.log(
-  `곡 ${backup.songs.length} · 구간 ${backup.loops.length} · 연습 기록 ${backup.sessions.length} · 분석 ${backup.analyses?.length ?? 0} · 릭 ${backup.licks?.length ?? 0} → ${out}`,
+  `곡 ${backup.songs.length} · 구간 ${backup.loops.length} · 연습 기록 ${backup.sessions.length} · 분석 ${backup.analyses?.length ?? 0} · 릭 ${backup.licks?.length ?? 0} · 퀴즈 ${backup.quizResults?.length ?? 0} → ${out}`,
 );

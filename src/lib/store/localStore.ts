@@ -1,5 +1,5 @@
 import { createStore, get, set, type UseStore } from 'idb-keyval';
-import type { BackupFile, DataStore, Lick, LoopSection, PracticeSession, Song, SongAnalysis } from './types';
+import type { BackupFile, DataStore, Lick, LoopSection, PracticeSession, QuizResult, Song, SongAnalysis } from './types';
 
 type Keyed = { id: string };
 
@@ -93,6 +93,15 @@ export class LocalStore implements DataStore {
     await this.save('licks', (await this.rows<Lick>('licks')).filter((l) => l.id !== id));
   }
 
+  async addQuizResult(result: QuizResult): Promise<void> {
+    await this.save('quizResults', upsertById(await this.rows<QuizResult>('quizResults'), result));
+  }
+
+  async listQuizResults(lessonId: string): Promise<QuizResult[]> {
+    const rows = await this.rows<QuizResult>('quizResults');
+    return rows.filter((r) => r.lessonId === lessonId).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
+  }
+
   async addSession(session: PracticeSession): Promise<void> {
     await this.save('sessions', upsertById(await this.rows<PracticeSession>('sessions'), session));
   }
@@ -111,6 +120,7 @@ export class LocalStore implements DataStore {
       sessions: await this.rows<PracticeSession>('sessions'),
       analyses: await this.rows<SongAnalysis>('analyses'),
       licks: await this.rows<Lick>('licks'),
+      quizResults: await this.rows<QuizResult>('quizResults'),
     };
   }
 
@@ -128,5 +138,8 @@ export class LocalStore implements DataStore {
     let licks = await this.rows<Lick>('licks');
     for (const l of backup.licks ?? []) licks = upsertById(licks, l);
     await this.save('licks', licks);
+    let quiz = await this.rows<QuizResult>('quizResults');
+    for (const r of backup.quizResults ?? []) quiz = upsertById(quiz, r);
+    await this.save('quizResults', quiz);
   }
 }

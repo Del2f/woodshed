@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Segmented, Switch } from '../../components/controls';
 import { pcName } from '../../lib/theory';
+import { useStore } from '../../lib/store/StoreProvider';
+import type { QuizResult } from '../../lib/store/types';
+import { useAsync } from '../../lib/useAsync';
 import { TabPlayer } from '../tab/synth';
 import { NoteBoard, spotKey, type BoardDot } from './NoteBoard';
 import {
   checkFind, checkName, makeRound, midiAt, NATURAL_PCS, PC_LABELS, pcAt, positionsOf, retryRound, scopeLabel, scopeStrings,
   stringNumber, summarize, type Answer, type Question, type QuizSettings, type Spot,
 } from './fretNotes';
+import { bestOf, buildResult, comparable, FRET_LESSON_ID, itemLabel, settingsLabel, weakSpots } from './quizLog';
 
 const PREF_KEY = 'woodshed.learn.quiz';
 const ROUND = 10;
@@ -22,9 +26,20 @@ function loadPrefs(): typeof DEFAULTS {
 }
 
 const spotText = (strings: number[], s: Spot) => `${stringNumber(strings, s.si)}번 줄 ${s.fret === 0 ? '개방' : `${s.fret}프렛`}`;
+const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`;
+const score = (r: QuizResult) => `${r.correct}/${r.total} · ${sec(r.avgMs)}`;
+const when = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+const settingsOf = ({ mode, scope, naturalsOnly, maxFret }: QuizSettings): QuizResult['settings'] => ({ mode, scope, naturalsOnly, maxFret });
 
 /** 지판 음 이름 퀴즈: 자리 보고 이름 맞히기 / 이름 보고 자리 찾기, 한 판 10문제 */
-export function FretQuiz({ strings }: { strings: number[] }) {
+export function FretQuiz({ strings, tuningLabel }: { strings: number[]; tuningLabel: string }) {
+  const { store } = useStore();
+  const [histTick, setHistTick] = useState(0);
+  const histQ = useAsync(() => store.listQuizResults(FRET_LESSON_ID), [store, histTick]);
+
   const [prefs, setPrefs] = useState(loadPrefs);
   useEffect(() => {
     try {
@@ -35,6 +50,10 @@ export function FretQuiz({ strings }: { strings: number[] }) {
   }, [prefs]);
 
   const [round, setRound] = useState<Question[] | null>(null);
+  /** 이번 판이 '틀린 것만 다시'인지 — 기록 비교에서 뺀다 */
+  const [retrying, setRetrying] = useState(false);
+  /** 끝난 판의 저장 상태. before = 저장 전의 같은 설정 기록 (지난번·최고와 비교용) */
+  const [saved, setSaved] = useState<{ result: QuizResult; before: QuizResult[]; state: 'saving' | 'saved' | 'error'; error?: string } | null>(null);
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [feedback, setFeedback] = useState<{ ok: boolean; pc?: number; spot?: Spot } | null>(null);
@@ -61,9 +80,11 @@ export function FretQuiz({ strings }: { strings: number[] }) {
   const q = round?.[idx] ?? null;
   const done = !!round && idx >= round.length;
 
-  const start = (qs: Question[]) => {
+  const start = (qs: Question[], retry = false) => {
     if (advance.current) clearTimeout(advance.current);
     setRound(qs);
+    setRetrying(retry);
+    setSaved(null);
     setIdx(0);
     setAnswers([]);
     setFeedback(null);
@@ -84,6 +105,21 @@ export function FretQuiz({ strings }: { strings: number[] }) {
   };
   const answerName = (pc: number) => q && submit(checkName(q, pc), { pc });
   const answerSpot = (s: Spot) => q && submit(checkFind(strings, q, s), { spot: s });
+
+  // 한 판이 끝나면 한 번 저장 (그만하기로 멈춘 판은 저장하지 않는다)
+  useEffect(() => {
+    if (!done || saved) return;
+    const result = buildResult({ strings, tuningLabel, settings: prefs, retry: retrying, answers });
+    const before = comparable(histQ.data ?? [], tuningLabel, result.settings);
+    setSaved({ result, before, state: 'saving' });
+    store.addQuizResult(result).then(
+      () => {
+        setSaved((x) => (x?.result === result ? { ...x, state: 'saved' } : x));
+        setHistTick((t) => t + 1);
+      },
+      (e: unknown) => setSaved((x) => (x?.result === result ? { ...x, state: 'error', error: e instanceof Error ? e.message : String(e) } : x)),
+    );
+  }, [done, saved]);
 
   useEffect(() => {
     if (!q) return;
@@ -150,6 +186,7 @@ export function FretQuiz({ strings }: { strings: number[] }) {
         <button type="button" className="btn primary" style={{ alignSelf: 'flex-start' }} onClick={() => start(makeRound(strings, prefs, ROUND))}>
           {ROUND}문제 시작
         </button>
+        <QuizHistory results={histQ.data ?? null} error={histQ.error} tuningLabel={tuningLabel} settings={settingsOf(prefs)} cloud={store.kind === 'supabase'} />
       </div>
     );
   }
@@ -157,6 +194,9 @@ export function FretQuiz({ strings }: { strings: number[] }) {
   // ── 결과 ───────────────────
   if (done) {
     const s = summarize(answers);
+    const prev = saved?.before[0] ?? null;
+    const best = saved ? bestOf(saved.before) : null;
+    const newBest = !!saved && !retrying && !!best && bestOf([best, saved.result]) === saved.result;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div className="chips" style={{ gap: 32, alignItems: 'baseline' }}>
@@ -168,6 +208,13 @@ export function FretQuiz({ strings }: { strings: number[] }) {
             <div className="big-number">{(s.avgMs / 1000).toFixed(1)}초</div>
             <div className="muted" style={{ fontSize: 13 }}>평균 답한 시간</div>
           </div>
+          {!retrying && (prev || best) && (
+            <div className="quiz-compare">
+              {newBest && <b style={{ color: 'var(--green)' }}>새 최고 기록!</b>}
+              {prev && <span>지난번 {score(prev)}</span>}
+              {best && !newBest && <span>이 설정 최고 {score(best)}</span>}
+            </div>
+          )}
         </div>
         <p className="lead" style={{ fontSize: 15 }}>
           {s.correct === s.total
@@ -183,9 +230,10 @@ export function FretQuiz({ strings }: { strings: number[] }) {
             ))}
           </div>
         )}
+        <SaveStatus saved={saved} cloud={store.kind === 'supabase'} />
         <div className="chips">
           {s.missed.length > 0 && (
-            <button type="button" className="btn primary" onClick={() => start(retryRound(s.missed))}>
+            <button type="button" className="btn primary" onClick={() => start(retryRound(s.missed), true)}>
               틀린 것만 다시
             </button>
           )}
@@ -287,6 +335,92 @@ export function FretQuiz({ strings }: { strings: number[] }) {
             <span className="kbd">G</span> <span className="kbd">A</span> <span className="kbd">B</span>로도 답할 수 있어요
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+function SaveStatus({ saved, cloud }: { saved: { state: 'saving' | 'saved' | 'error'; error?: string } | null; cloud: boolean }) {
+  if (!saved) return null;
+  if (saved.state === 'error') {
+    return (
+      <div className="banner error">
+        <span>
+          기록을 저장하지 못했어요 ({saved.error}).
+          {cloud && ' Supabase SQL Editor에서 supabase/migrations/0004_quiz_results.sql을 실행했는지 확인해 주세요.'}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <span className="muted" style={{ fontSize: 13 }}>
+      {saved.state === 'saving' ? '기록 저장 중…' : cloud ? '기록을 클라우드에 저장했어요' : '기록을 이 브라우저에 저장했어요 (설정에서 로그인하면 클라우드로 옮길 수 있어요)'}
+    </span>
+  );
+}
+
+/** 지난 기록: 지금 설정의 최고 기록, 자주 틀린 자리, 최근 판들 */
+function QuizHistory({
+  results,
+  error,
+  tuningLabel,
+  settings,
+  cloud,
+}: {
+  results: QuizResult[] | null;
+  error: Error | null;
+  tuningLabel: string;
+  settings: QuizResult['settings'];
+  cloud: boolean;
+}) {
+  if (error) {
+    return (
+      <div className="banner error">
+        <span>
+          지난 기록을 불러오지 못했어요 ({error.message}).
+          {cloud && ' Supabase SQL Editor에서 supabase/migrations/0004_quiz_results.sql을 실행했는지 확인해 주세요.'}
+        </span>
+      </div>
+    );
+  }
+  if (!results?.length) return null;
+  const same = comparable(results, tuningLabel, settings);
+  const best = bestOf(same);
+  const weak = weakSpots(same.slice(0, 20));
+  return (
+    <div className="quiz-history">
+      <h3 className="title-s" style={{ fontSize: 16 }}>지난 기록</h3>
+      <div className="quiz-history-top">
+        <div>
+          <div className="muted" style={{ fontSize: 13 }}>이 설정({tuningLabel}) 최고</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{best ? score(best) : '아직 없음'}</div>
+          {best && <div className="muted" style={{ fontSize: 12 }}>{when(best.finishedAt)} · {same.length}판</div>}
+        </div>
+        {weak.length > 0 && (
+          <div style={{ flex: '1 1 260px' }}>
+            <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>자주 틀린 자리 (최근 20판)</div>
+            <div className="chips" style={{ gap: 6 }}>
+              {weak.map((w) => (
+                <span key={w.key} className="chip">
+                  {itemLabel(w.key)} <span className="muted">{w.misses}/{w.tries}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      <div>
+        {results.slice(0, 6).map((r) => (
+          <div key={r.id} className="file-row" style={{ fontSize: 14 }}>
+            <span className="name">
+              {settingsLabel(r.settings)}
+              {r.tuningLabel !== tuningLabel && <span className="muted"> · {r.tuningLabel}</span>}
+              {r.retry && <span className="muted"> · 틀린 것만</span>}
+            </span>
+            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{score(r)}</span>
+            <span className="muted" style={{ fontSize: 12, minWidth: 92, textAlign: 'right' }}>{when(r.finishedAt)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

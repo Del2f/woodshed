@@ -59,7 +59,8 @@
 
 ```
 음원 파일 (mp3, wav, flac …)         → 내 PC에서 바로 읽음. 어디에도 업로드하지 않음
-곡 · 구간 · 연습 기록 · 분석 · 릭    → Supabase (로그인 전에는 이 브라우저의 IndexedDB)
+곡 · 구간 · 연습 기록 · 분석       → Supabase (로그인 전에는 이 브라우저의 IndexedDB)
+릭 · 퀴즈 기록                        → Supabase (위와 같음)
 분리된 기타 트랙                      → 엔진 캐시(~/.woodshed/cache) + 브라우저(IndexedDB)
 주간 백업                             → 비공개 GitHub 저장소 Del2f/woodshed-backup
 수동 백업                             → 설정 화면에서 JSON 내려받기·불러오기
@@ -130,7 +131,7 @@ Supabase를 연결하지 않아도 바로 쓸 수 있습니다. 이때는 **로�
 ### Supabase 연결 (영구 저장)
 
 1. [supabase.com](https://supabase.com)에서 새 프로젝트를 만듭니다. 무료 플랜이면 충분합니다.
-2. **SQL Editor**에서 [`supabase/migrations/`](supabase/migrations/)의 SQL을 번호 순서대로 실행합니다 (`0001_init.sql`, `0002_analyses.sql`, `0003_licks.sql`).
+2. **SQL Editor**에서 [`supabase/migrations/`](supabase/migrations/)의 SQL을 번호 순서대로 실행합니다 (`0001_init.sql`, `0002_analyses.sql`, `0003_licks.sql`, `0004_quiz_results.sql`).
 3. **Authentication → URL Configuration**
    - Site URL: 배포 주소 (예: `https://del2f.github.io/woodshed/`)
    - Redirect URLs에 `http://localhost:5173/**` 와 배포 주소를 추가합니다.
@@ -171,7 +172,7 @@ scripts/backup.ts     Supabase 전체 → 앱 백업 JSON (주간 백업용)
 engine/
   woodshed_engine/    analysis(박자·키·코드) · separation(BS-RoFormer/Demucs) · transcribe(Basic Pitch ONNX) · server(FastAPI)
   tests/              합성 음원 기반 테스트
-supabase/migrations/  DB 스키마 + RLS (songs · loops · practice_sessions · analyses · licks)
+supabase/migrations/  DB 스키마 + RLS (songs · loops · practice_sessions · analyses · licks · quiz_results)
 ```
 
 ---

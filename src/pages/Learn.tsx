@@ -98,7 +98,7 @@ export function Lesson() {
         </label>
       </header>
 
-      {lesson.id === 'fretboard-notes' && <FretNotesLesson strings={preset.strings} />}
+      {lesson.id === 'fretboard-notes' && <FretNotesLesson strings={preset.strings} tuningLabel={preset.label} />}
     </div>
   );
 }

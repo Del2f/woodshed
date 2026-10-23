@@ -81,6 +81,24 @@ export interface Lick {
   updatedAt: string;
 }
 
+/** 이론 커리큘럼 퀴즈 한 판의 결과 */
+export interface QuizResult {
+  id: string;
+  /** 어느 레슨의 퀴즈인지 (features/learn/curriculum.ts의 id) */
+  lessonId: string;
+  finishedAt: string;
+  tuningLabel: string;
+  /** 레슨마다 다른 퀴즈 설정 (같은 설정끼리 기록을 비교한다) */
+  settings: Record<string, string | number | boolean>;
+  /** 틀린 것만 다시 푼 판 — 최고 기록·비교에서 뺀다 */
+  retry: boolean;
+  correct: number;
+  total: number;
+  avgMs: number;
+  /** 문제별 결과. key는 레슨이 정한다 (예: 'name:6:3' = 6번 줄 3프렛 이름 맞히기) */
+  items: { key: string; ok: boolean; ms: number }[];
+}
+
 export interface BackupFile {
   app: 'woodshed';
   version: 1;
@@ -92,6 +110,8 @@ export interface BackupFile {
   analyses?: SongAnalysis[];
   /** v0.3부터 */
   licks?: Lick[];
+  /** v0.4부터 */
+  quizResults?: QuizResult[];
 }
 
 export interface DataStore {
@@ -109,6 +129,9 @@ export interface DataStore {
   getLick(id: string): Promise<Lick | null>;
   upsertLick(lick: Lick): Promise<void>;
   deleteLick(id: string): Promise<void>;
+  addQuizResult(result: QuizResult): Promise<void>;
+  /** 최근 것부터 */
+  listQuizResults(lessonId: string): Promise<QuizResult[]>;
   addSession(session: PracticeSession): Promise<void>;
   listSessionsSince(iso: string): Promise<PracticeSession[]>;
   exportAll(): Promise<BackupFile>;

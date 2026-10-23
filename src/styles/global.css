@@ -398,3 +398,6 @@ button.fb-cell:disabled { cursor: default; }
 .note-key.good { background: var(--green); color: #000; }
 .note-key.bad { background: var(--red); color: #000; }
 .note-key.good small, .note-key.bad small { color: rgba(0, 0, 0, 0.6); }
+.quiz-compare { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--text-2); }
+.quiz-history { display: flex; flex-direction: column; gap: 14px; padding-top: 18px; border-top: 1px solid var(--hairline); }
+.quiz-history-top { display: flex; flex-wrap: wrap; gap: 16px 40px; }

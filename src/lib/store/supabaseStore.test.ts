@@ -27,6 +27,7 @@ function fakeClient(counts: Record<string, number>) {
 function fakeRow(table: string, i: number) {
   const id = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
   if (table === 'practice_sessions') return { id, song_id: null, started_at: '2026-01-01T00:00:00Z', duration_sec: 60 };
+  if (table === 'quiz_results') return { data: { id, lessonId: 'fretboard-notes' } };
   return { id };
 }
 
@@ -48,5 +49,11 @@ describe('SupabaseStore.exportAll', () => {
     const backup = await new SupabaseStore(sb).exportAll();
     expect(backup.sessions).toHaveLength(1000);
     expect(calls.filter((c) => c.startsWith('practice_sessions'))).toHaveLength(2);
+  });
+
+  it('퀴즈 기록도 백업에 들어간다', async () => {
+    const { sb } = fakeClient({ quiz_results: 3 });
+    const backup = await new SupabaseStore(sb).exportAll();
+    expect(backup.quizResults?.map((r) => r.lessonId)).toEqual(['fretboard-notes', 'fretboard-notes', 'fretboard-notes']);
   });
 });
