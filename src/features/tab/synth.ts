@@ -18,6 +18,10 @@ export interface PlayOptions {
   /** 화면 커서용: 타브 시간(초) */
   onPosition?: (t: number) => void;
   onEnd?: () => void;
+  /** 반복해서 처음으로 돌아갈 때마다. 숫자를 돌려주면 다음 바퀴부터 그 재생 속도로 (박이 밀리지 않게 바퀴 경계에서 바꾼다) */
+  onLoop?: () => number | void;
+  /** 재생하는 동안 계속 울리는 근음 (MIDI) — 모드는 근음 위에서 들어야 색이 들린다 */
+  drone?: number | null;
 }
 
 const midiHz = (m: number) => 440 * 2 ** ((m - 69) / 12);
@@ -219,6 +223,7 @@ export class TabPlayer {
       nextClick: Math.ceil((from - 1e-6) / beat) * beat,
     };
     if (this.state.i < 0) this.state.i = events.length;
+    if (opts.drone != null) this.startDrone(opts.drone, this.state.passStart);
     this.timer = window.setInterval(() => this.tick(), 25);
     this.tick();
     const frame = () => {
@@ -250,6 +255,8 @@ export class TabPlayer {
         if (endAt > ahead) break;
         if (s.opts.loop) {
           const lf = s.opts.loopFrom ?? s.passFrom;
+          const nextRate = s.opts.onLoop?.();
+          if (typeof nextRate === 'number' && nextRate > 0) s.opts = { ...s.opts, rate: nextRate };
           s.passStart = endAt;
           s.passFrom = lf;
           s.i = s.events.findIndex((x) => x.time >= lf - 1e-6);
@@ -274,6 +281,26 @@ export class TabPlayer {
         this.note(e!, Math.max(at, ctx.currentTime), s.opts.drive, s.opts.rate);
         s.i += 1;
       }
+    }
+  }
+
+  /** 근음 드론: 한 옥타브 차이 톱니파 두 개를 어둡게 걸러 낮게 깔아 둔다 (stop에서 같이 멈춤) */
+  private startDrone(midi: number, at: number): void {
+    const ctx = this.ctx!;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 700;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.07, at + 0.4);
+    lp.connect(g).connect(this.clean);
+    for (const m of [midi, midi + 12]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = midiHz(m);
+      osc.connect(lp);
+      osc.start(at);
+      this.sources.push(osc);
     }
   }
 

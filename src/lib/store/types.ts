@@ -79,6 +79,8 @@ export interface Lick {
   srs: SrsState;
   createdAt: string;
   updatedAt: string;
+  /** 커리큘럼 연습에서 추가한 릭이면 어느 레슨의 어떤 패턴인지 (같은 패턴을 두 번 넣지 않도록). DB에서는 data(jsonb) 안 */
+  origin?: { lessonId: string; key: string } | null;
 }
 
 /** 이론 커리큘럼 퀴즈 한 판의 결과 */

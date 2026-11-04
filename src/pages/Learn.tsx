@@ -1,54 +1,72 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { Icon } from '../components/Icon';
-import { LESSONS, lessonById } from '../features/learn/curriculum';
+import { LESSONS, TRACKS, lessonById, trackById } from '../features/learn/curriculum';
 import { FretNotesLesson } from '../features/learn/FretNotesLesson';
+import { LessonBlocks, rich } from '../features/learn/LessonBlocks';
 import { TUNING_PRESETS } from '../features/tuner/pitch';
 
 const PREF_KEY = 'woodshed.learn';
 
-/** 이론 커리큘럼 목차 */
+/** 커리큘럼 목차 — 트랙(지판과 이론 / 테크닉 / 실전 응용)마다 파트별로 */
 export function Learn() {
-  const parts = [...new Set(LESSONS.map((l) => l.part))];
+  const ready = LESSONS.filter((l) => l.ready).length;
   return (
     <div className="page">
       <header className="page-head">
         <div>
-          <span className="eyebrow">이론 커리큘럼</span>
+          <span className="eyebrow">커리큘럼</span>
           <h1 className="title-xl">손은 이미 알아요. 이름만 붙이면 돼요</h1>
-          <p className="lead">지판 음 이름에서 시작해 코드톤 타겟팅, 메탈 스케일까지 9개 레슨. 레슨마다 내 라이브러리의 곡을 예제로 쓰고, 퀴즈로 손에 익혀요.</p>
+          <p className="lead">
+            지판과 이론, 테크닉, 실전 응용 세 갈래로 {LESSONS.length}개 레슨(지금 {ready}개 열림). 테크닉 연습은 지판·타브로 보고 들은 다음, 내 연습 목록에 넣어 BPM을 올려 가며 복습해요.
+          </p>
         </div>
       </header>
 
-      {parts.map((part) => (
-        <section key={part} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <h2 className="title-s" style={{ color: 'var(--text-3)' }}>{part}</h2>
-          <div className="lesson-grid">
-            {LESSONS.filter((l) => l.part === part).map((l) => {
-              const body = (
-                <>
-                  <div className="card-head" style={{ alignItems: 'center' }}>
-                    <span className="lesson-num">{l.n}</span>
-                    {l.ready ? <Icon name="forward" size={18} /> : <span className="chip">준비 중</span>}
-                  </div>
-                  <div className="song-title" style={{ fontSize: 18 }}>{l.title}</div>
-                  <p className="muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>{l.summary}</p>
-                  <div className="chips" style={{ gap: 6 }}>
-                    {l.topics.map((t) => (
-                      <span key={t} className="chip" style={{ fontSize: 12 }}>{t}</span>
-                    ))}
-                  </div>
-                </>
-              );
-              return l.ready ? (
-                <Link key={l.id} to={`/learn/${l.id}`} className="lesson-card ready">{body}</Link>
-              ) : (
-                <div key={l.id} className="lesson-card" aria-disabled>{body}</div>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+      {TRACKS.map((track) => {
+        const lessons = LESSONS.filter((l) => l.track === track.id);
+        const parts = [...new Set(lessons.map((l) => l.part))];
+        return (
+          <section key={track.id} className="track" aria-labelledby={`track-${track.id}`}>
+            <div>
+              <h2 id={`track-${track.id}`} className="title-l">{track.title}</h2>
+              <p className="muted" style={{ margin: '4px 0 0', fontSize: 14 }}>{track.summary}</p>
+            </div>
+            {parts.map((part) => (
+              <div key={part} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <h3 className="title-s" style={{ color: 'var(--text-3)' }}>{part}</h3>
+                <div className="lesson-grid">
+                  {lessons.filter((l) => l.part === part).map((l) => {
+                    const body = (
+                      <>
+                        <div className="card-head" style={{ alignItems: 'center' }}>
+                          <span className="lesson-num">{l.n}</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {l.level && <span className="chip" style={{ fontSize: 12 }}>{l.level}</span>}
+                            {l.ready ? <Icon name="forward" size={18} /> : <span className="chip">준비 중</span>}
+                          </span>
+                        </div>
+                        <div className="song-title" style={{ fontSize: 18 }}>{l.title}</div>
+                        <p className="muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>{l.summary}</p>
+                        <div className="chips" style={{ gap: 6 }}>
+                          {l.topics.map((t) => (
+                            <span key={t} className="chip" style={{ fontSize: 12 }}>{t}</span>
+                          ))}
+                        </div>
+                      </>
+                    );
+                    return l.ready ? (
+                      <Link key={l.id} to={`/learn/${l.id}`} className="lesson-card ready">{body}</Link>
+                    ) : (
+                      <div key={l.id} className="lesson-card" aria-disabled>{body}</div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -61,7 +79,7 @@ function loadPreset(): string {
   }
 }
 
-/** 레슨 한 개. 위쪽에서 고른 튜닝이 레슨의 모든 지판과 퀴즈에 쓰인다 */
+/** 레슨 한 개. 위쪽에서 고른 튜닝이 레슨의 모든 지판·퀴즈·연습에 쓰인다 */
 export function Lesson() {
   const lesson = lessonById(useParams().lessonId);
   const [presetId, setPresetId] = useState(loadPreset);
@@ -82,11 +100,14 @@ export function Lesson() {
         <div>
           <Link to="/learn" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 15 }}>
             <Icon name="back" size={18} strokeWidth={2} />
-            이론 커리큘럼
+            커리큘럼
           </Link>
-          <span className="eyebrow">레슨 {lesson.n} · {lesson.part}</span>
+          <span className="eyebrow">
+            {trackById(lesson.track).title} {lesson.n} · {lesson.part}
+            {lesson.level && ` · ${lesson.level}`}
+          </span>
           <h1 className="title-xl">{lesson.title}</h1>
-          {lesson.intro && <p className="lead">{lesson.intro}</p>}
+          {lesson.intro && <p className="lead">{rich(lesson.intro)}</p>}
         </div>
         <label className="field" style={{ minWidth: 200 }}>
           <span>튜닝</span>
@@ -99,6 +120,7 @@ export function Lesson() {
       </header>
 
       {lesson.id === 'fretboard-notes' && <FretNotesLesson strings={preset.strings} tuningLabel={preset.label} />}
+      {lesson.blocks && <LessonBlocks key={lesson.id} lessonId={lesson.id} blocks={lesson.blocks} strings={preset.strings} tuningLabel={preset.label} />}
     </div>
   );
 }
