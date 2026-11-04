@@ -29,6 +29,7 @@ export const spotKey = (s: Spot) => `${s.si}:${s.fret}`;
 export function NoteBoard({
   strings,
   frets = 12,
+  startFret = 0,
   dots,
   onPick,
   canPick,
@@ -39,6 +40,8 @@ export function NoteBoard({
   /** 낮은 줄 → 높은 줄 MIDI (화면에는 높은 줄이 위) */
   strings: number[];
   frets?: number;
+  /** 왼쪽 끝 프렛 — 0이 아니면 그 프렛부터 frets칸만 보여 준다 (높은 포지션 패턴용) */
+  startFret?: number;
   dots: Map<string, BoardDot>;
   onPick?: (s: Spot) => void;
   /** 누를 수 있는 칸 (없으면 전부) */
@@ -60,7 +63,8 @@ export function NoteBoard({
         {order.map((si) => (
           <div key={si} className={`fb-row${dimStrings?.has(si) ? ' dim' : ''}`} style={{ gridTemplateColumns: cols }}>
             <span className="fb-string">{stringNumber(strings, si)}</span>
-            {Array.from({ length: frets + 1 }, (_, fret) => {
+            {Array.from({ length: frets + 1 }, (_, i) => {
+              const fret = startFret + i;
               const spot = { si, fret };
               const dot = dots.get(spotKey(spot));
               const st = dot ? STYLE[dot.kind] : null;
@@ -92,7 +96,7 @@ export function NoteBoard({
       </div>
       <div className="fb-row fb-nums" style={{ gridTemplateColumns: cols, minWidth }}>
         <span />
-        {Array.from({ length: frets + 1 }, (_, f) => (
+        {Array.from({ length: frets + 1 }, (_, i) => startFret + i).map((f) => (
           <span key={f} className={MARKERS.has(f) ? 'mark' : undefined}>
             {f === 0 ? '개방' : f}
           </span>

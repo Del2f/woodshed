@@ -401,3 +401,31 @@ button.fb-cell:disabled { cursor: default; }
 .quiz-compare { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--text-2); }
 .quiz-history { display: flex; flex-direction: column; gap: 14px; padding-top: 18px; border-top: 1px solid var(--hairline); }
 .quiz-history-top { display: flex; flex-wrap: wrap; gap: 16px 40px; }
+
+/* ── 커리큘럼 트랙 · 연습 카드 (v0.4) ─────────── */
+.track { display: flex; flex-direction: column; gap: 18px; padding-top: 8px; }
+.track + .track { border-top: 1px solid var(--hairline); padding-top: 28px; }
+.drill { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.drill-pick { display: flex; flex-direction: column; gap: 14px; }
+.drill-row { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: flex-end; }
+.drill-row .field { min-width: 120px; }
+.drill-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.drill-bpm { display: flex; align-items: center; gap: 8px; }
+.drill-bpm .input { width: 76px; min-height: 36px; text-align: center; font-size: 16px; font-weight: 700; }
+.drill-switch { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.drill-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-top: 14px; border-top: 1px solid var(--hairline); }
+.drill-foot .btn { display: inline-flex; align-items: center; gap: 6px; }
+.mode-table { display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; border: 1px solid var(--hairline); }
+.mode-row { display: grid; grid-template-columns: minmax(130px, 170px) minmax(0, 1.2fr) minmax(0, 1.5fr); gap: 8px 18px; align-items: center; padding: 12px 16px; }
+.mode-row + .mode-row { border-top: 1px solid var(--hairline); }
+.mode-name { font-size: 15px; }
+.mode-name .muted { font-size: 12px; }
+.mode-degrees { display: flex; flex-wrap: wrap; gap: 4px; }
+.mode-degrees span { display: flex; flex-direction: column; align-items: center; min-width: 34px; padding: 4px 4px 3px; border-radius: 8px; background: var(--surface-3); font-size: 13px; font-weight: 700; }
+.mode-degrees span small { font-size: 10px; font-weight: 500; color: var(--text-3); font-family: var(--font); }
+.mode-degrees span.color { background: var(--accent); color: #000; }
+.mode-degrees span.color small { color: rgba(0, 0, 0, 0.6); }
+.mode-desc { display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+@media (max-width: 860px) {
+  .mode-row { grid-template-columns: 1fr; }
+}
