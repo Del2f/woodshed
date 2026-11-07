@@ -32,6 +32,8 @@ export interface BpmLevels {
  * - modeTable: 같은 근음으로 7개 모드를 밝기 순서로 비교하는 표
  * - scaleDrill: 3nps 포지션 연습 카드 (모드 고르기, 피킹 방식, 근음 드론)
  * - sweepDrill: 스윕 연습 카드 (키 안의 코드, 인버전)
+ * - sweepProgression: 코드 진행을 따라 스윕 모양을 가까운 자리로 잇는 연습 카드
+ * - pickingDrill: 피킹 연습 카드 (크로매틱 1-2-3-4 / 스케일 시퀀스)
  */
 export type LessonBlock =
   | { type: 'text'; title: string; body: string[]; note?: string }
@@ -46,6 +48,8 @@ export type LessonBlock =
       defaultRoot: number;
       /** 근음 드론을 처음부터 켜 둘지 */
       drone?: boolean;
+      /** 레가토로 시작할지 */
+      defaultLegato?: boolean;
       levels: BpmLevels;
     }
   | {
@@ -56,6 +60,16 @@ export type LessonBlock =
       defaultRoot: number;
       defaultKeyMode: 'ionian' | 'aeolian';
       levels: BpmLevels;
+    }
+  | { type: 'sweepProgression'; title: string; intro?: string; defaultRoot: number; defaultKeyMode: 'ionian' | 'aeolian'; levels: BpmLevels }
+  | {
+      type: 'pickingDrill';
+      title: string;
+      intro?: string;
+      exercise: 'chromatic' | 'sequence';
+      defaultLegato?: boolean;
+      modes?: ModeId[];
+      defaultMode?: ModeId;
     };
 
 export interface LessonMeta {
@@ -227,10 +241,51 @@ export const LESSONS: LessonMeta[] = [
 
   // ── 테크닉 ─────────────────────────
   {
-    id: 'alternate-picking', track: 'technique', n: 1, part: '피킹', ready: false, level: '입문',
+    id: 'alternate-picking', track: 'technique', n: 1, part: '피킹', ready: true, level: '입문',
     title: '얼터네이트 피킹',
-    summary: '한 줄 트레몰로에서 줄 넘기기(안쪽·바깥쪽 피킹)까지. 모든 속주의 바탕.',
-    topics: ['다운–업', '줄 넘기기', '안쪽·바깥쪽 피킹'],
+    summary: '다운–업을 끊지 않는 오른손 규칙, 크로매틱 1-2-3-4, 줄 넘기기(안쪽·바깥쪽), 스케일 시퀀스. 모든 속주의 바탕.',
+    topics: ['다운–업', '크로매틱', '안쪽·바깥쪽 피킹', '4음 시퀀스'],
+    intro: '모든 속주의 바탕은 **다운–업을 쉬지 않고 번갈아 치는 것**이에요. 음이 바뀌어도, 줄이 바뀌어도 오른손의 다운–업 순서는 깨지지 않아요.',
+    blocks: [
+      {
+        type: 'text',
+        title: '1. 오른손 규칙',
+        body: [
+          '박의 앞(정박)은 **다운**, 뒤(엇박)는 **업** — 16분음표라면 다운–업–다운–업이 박마다 되풀이돼요. 쉬는 음이 있어도 손은 허공에서 그 순서대로 계속 움직여요.',
+          '피크는 줄에 끝만 살짝(1–2mm) 걸치고, 움직임은 손목(또는 엄지·검지)에서 작게. 피크가 크게 움직일수록 빠른 속도에서 무너져요. 팜뮤트를 살짝 걸고 연습하면 잡음이 줄고, 메탈 리프의 타이트한 소리와도 바로 이어져요.',
+        ],
+      },
+      {
+        type: 'pickingDrill',
+        title: '2. 크로매틱 1-2-3-4 (손 풀기)',
+        intro: '한 줄에 네 음, 손가락 하나에 한 프렛. 왼손이 누르는 순간과 피크가 치는 순간을 맞추는 가장 기본 연습이에요. 시작 프렛을 바꿔 지판 위아래에서 쳐 보세요.',
+        exercise: 'chromatic',
+      },
+      {
+        type: 'text',
+        title: '3. 줄 넘기기: 안쪽과 바깥쪽',
+        body: [
+          '줄을 옮길 때 피크가 두 줄 **사이에서** 오가면 안쪽(inside) 피킹, 두 줄의 **바깥을 돌아** 넘으면 바깥쪽(outside) 피킹이에요. 굵은 줄을 다운, 가는 줄을 업으로 이어 치면 안쪽 / 굵은 줄을 업, 가는 줄을 다운으로 이어 치면 바깥쪽.',
+          '어느 쪽이 나오는지는 한 줄에 치는 음 수가 정해요. 한 줄에 **네 음**(짝수)이면 올라갈 때는 늘 바깥쪽, 내려올 때는 늘 안쪽. **3nps**(홀수)는 줄마다 안쪽·바깥쪽이 번갈아 나와요. 둘 다 손에 익어야 어떤 프레이즈든 칠 수 있어요.',
+        ],
+      },
+      {
+        type: 'pickingDrill',
+        title: '4. 스케일 시퀀스',
+        intro: '스케일을 네 음(또는 세 음)씩 묶어 한 음씩 밀어 올라가는 패턴이에요. 같은 포지션 안에서 줄 넘기기가 쉬지 않고 나와서, 실전 속주 솔로에 가장 가까운 연습이에요.',
+        exercise: 'sequence',
+      },
+      {
+        type: 'tips',
+        title: '연습법',
+        items: [
+          '처음 2주는 속도보다 **동기화**. 메트로놈을 느리게 두고, 왼손이 누르는 순간과 피크가 줄을 치는 순간이 정확히 같은지 들어요.',
+          '세 번 연속 깨끗하면 5 BPM 올리고, 틀리기 시작하면 10 BPM 내려서 힘을 빼요. ‘자동으로 올리기’를 켜 두면 BPM을 대신 올려 줘요.',
+          '하루 10분이라도 매일. 속주는 몰아서 하는 것보다 매일 짧게 하는 쪽이 훨씬 빨리 늘어요.',
+          '연습 목록에 넣고 복습할 때 그날 친 BPM을 적어 두세요. 목표까지 얼마나 왔는지 보여요.',
+        ],
+      },
+    ],
   },
   {
     id: 'sweep-3', track: 'technique', n: 2, part: '스윕', ready: true, level: '중급',
@@ -284,22 +339,142 @@ export const LESSONS: LessonMeta[] = [
     ],
   },
   {
-    id: 'sweep-45', track: 'technique', n: 3, part: '스윕', ready: false, level: '고급',
+    id: 'sweep-45', track: 'technique', n: 3, part: '스윕', ready: true, level: '고급',
     title: '스윕 4·5줄',
-    summary: '4줄 16분음표 모양, 5번 줄 근음에서 시작하는 5줄 모양. 3줄 동작을 넓히기.',
+    summary: '4줄 16분음표 모양, 5번 줄에서 시작하는 5줄 모양. 3줄 동작을 넓히기.',
     topics: ['4줄 모양', '5줄 모양', '양 끝 레가토'],
+    intro: '3줄 스윕의 동작을 그대로 넓혀요. 줄이 늘면 피크가 지나가는 거리가 길어지니, 손목을 튕기지 말고 **팔 전체가 일정한 속도로 미끄러지는** 느낌이 중요해요.',
+    blocks: [
+      {
+        type: 'text',
+        title: '1. 4줄: 16분음표 모양',
+        body: [
+          '4번 줄부터 1번 줄까지 한 줄에 한 음씩 올라가고, 1번 줄에서 두 음. 한 바퀴가 8음이라 **16분음표 두 박**에 딱 맞아요(3줄·5줄은 6연음).',
+          '4줄 모양의 위 세 줄만 보면 **3줄 모양 중 하나**예요. 거기에 4번 줄의 화음 음 하나를 더한 것 — 이미 익힌 3줄 모양을 찾아보면 금방 외워져요. 근음(주황)의 자리부터 확인하세요.',
+        ],
+      },
+      {
+        type: 'sweepDrill',
+        title: '2. 4줄 연습',
+        intro: '키 안의 코드를 골라 인버전 하나씩, 또는 셋을 이어서 쳐 보세요. ‘3개 이어서’를 고르면 재생하는 동안 지판이 지금 치는 모양을 보여 줘요.',
+        strings: 4,
+        defaultRoot: 4,
+        defaultKeyMode: 'aeolian',
+        levels: { beginner: 80, intermediate: 120, advanced: 160, unit: '16분음표' },
+      },
+      {
+        type: 'text',
+        title: '3. 5줄: 양 끝에서 레가토',
+        body: [
+          '5번 줄에서 첫 음을 치고 **해머링으로 다음 음**, 4·3·2번 줄을 한 음씩 쓸고, 1번 줄에서 두 음. 내려올 때는 1번 줄 풀링 → 업 스윕 → 5번 줄에서 풀링으로 돌아와요. 한 바퀴 12음, **6연음 두 박**이에요.',
+          '메이저 기본형은 손을 5–6칸 벌려야 해요. 처음엔 12프렛 근처(프렛 간격이 좁은 곳)에서 시작하고, 손이 익으면 낮은 자리로 내려오세요.',
+        ],
+      },
+      {
+        type: 'sweepDrill',
+        title: '4. 5줄 연습',
+        intro: '5줄 모양은 네오클래식 메탈 솔로의 상징 같은 소리예요. 한 모양을 정확하게 익힌 다음 같은 키의 다른 코드로 옮겨 가요.',
+        strings: 5,
+        defaultRoot: 4,
+        defaultKeyMode: 'aeolian',
+        levels: SEXTUPLET_LEVELS,
+      },
+      {
+        type: 'tips',
+        title: '연습법',
+        items: [
+          '줄이 늘수록 박의 첫 음이 밀리기 쉬워요. 5줄은 한 바퀴 12음 = 2박이라, **5번 줄 첫 음과 꼭대기 음**이 박의 시작이에요. 여기에 클릭을 맞춰요.',
+          '소리가 뭉개지면 드라이브를 끄고 클린으로 연습해 보세요. 클린에서 깨끗해야 드라이브에서도 깨끗해요.',
+          '같은 코드를 3줄 → 4줄 → 5줄 모양으로 번갈아 치면 세 모양이 지판 위에서 하나로 연결돼요.',
+        ],
+      },
+    ],
   },
   {
-    id: 'sweep-diatonic', track: 'technique', n: 4, part: '스윕', ready: false, level: '고급',
-    title: '키 안에서 스윕 순환',
-    summary: 'I–ii–iii–IV–V–vi–vii°를 차례로 이어 치기. 코드 진행을 따라가는 네오클래식 스윕.',
-    topics: ['다이어토닉 순환', '코드 진행 따라가기', '위치 이동'],
+    id: 'sweep-diatonic', track: 'technique', n: 4, part: '스윕', ready: true, level: '고급',
+    title: '코드 진행 따라 스윕',
+    summary: 'i–VI–VII 같은 메탈 진행과 키 안의 코드 7개를 스윕으로 이어 치기. 다음 코드를 가장 가까운 자리에서.',
+    topics: ['가까운 자리로 잇기', '메탈 진행', '다이어토닉 순환'],
+    intro: '코드 진행을 따라 스윕 모양을 바꿔 가는 연습이에요. 네오클래식 메탈 솔로에서 듣는 그 소리 — 핵심은 **다음 코드를 가장 가까운 자리에서** 잡는 거예요.',
+    blocks: [
+      {
+        type: 'text',
+        title: '1. 가까운 자리로 잇기',
+        body: [
+          '같은 코드도 인버전에 따라 지판 세 곳에 있어요. 코드가 바뀔 때 손이 멀리 뛰지 않도록, 아래 연습은 **앞 코드와 손 위치가 가장 가까운 인버전**을 골라 이어 줘요(지판 가운데 3–15프렛 안에서).',
+          '두 코드에 같이 들어 있는 음(공통음)이 같은 자리에 남는 경우가 많아요. 그 손가락을 기준점 삼아 나머지 손가락만 옮겨요.',
+        ],
+      },
+      {
+        type: 'sweepProgression',
+        title: '2. 진행 고르고 연습하기',
+        intro: '코드마다 한 마디씩, 재생하는 동안 지판이 지금 코드의 모양을 보여 줘요. 멈춘 상태에서는 마디 단추를 눌러 모양을 하나씩 확인할 수 있어요.',
+        defaultRoot: 4,
+        defaultKeyMode: 'aeolian',
+        levels: SEXTUPLET_LEVELS,
+      },
+      {
+        type: 'text',
+        title: '3. 메탈에서 자주 쓰는 진행',
+        body: [
+          '**i–VI–VII–i**(Em–C–D–Em): 가장 흔한 메탈 진행. **i–VI–III–VII**(Em–C–G–D): 서사적인 파워 메탈. **i–iv–v–i**(Em–Am–Bm–Em): 어둡고 무거운 마이너.',
+          '**순서대로 7개**는 키 안의 코드를 모두 지나가는 스케일 같은 연습이에요. 디미니시드(ii°)가 특히 손에 안 익으니 그 마디만 따로 천천히 쳐 보세요.',
+        ],
+        note: '하모닉 마이너의 V(메이저 코드)로 가는 네오클래식 진행(i–iv–V–i)은 ‘메탈 스케일’ 레슨 다음에 다뤄요.',
+      },
+      {
+        type: 'tips',
+        title: '연습법',
+        items: [
+          '처음엔 코드가 바뀌는 순간만 반복해요. 마디 끝 두 박 + 다음 마디 첫 박을 느리게, 손이 미리 다음 자리로 가 있도록.',
+          '3줄로 진행 전체를 익힌 다음 같은 진행을 5줄로. 줄 수만 바꿔도 손 위치는 거의 그대로예요.',
+          '백킹 대신 근음을 입으로 세며 쳐 보세요. 지금 무슨 코드를 치는지 알고 치는 게 즉흥으로 가는 첫걸음이에요.',
+        ],
+      },
+    ],
   },
   {
-    id: 'legato', track: 'technique', n: 5, part: '레가토·태핑', ready: false, level: '중급',
+    id: 'legato', track: 'technique', n: 5, part: '레가토·태핑', ready: true, level: '중급',
     title: '레가토 3nps',
-    summary: '피킹 한 번에 세 음. 해머링·풀링의 음량을 피킹과 같게 맞추기.',
-    topics: ['해머링·풀링', '음량 고르기', '줄 넘기기'],
+    summary: '피킹 한 번에 세 음. 해머링·풀링의 음량을 피킹과 같게 맞추고, 시퀀스로 넓히기.',
+    topics: ['해머링·풀링', '음량 고르기', '3음 시퀀스'],
+    intro: '피킹은 줄마다 첫 음에 한 번, 나머지는 왼손으로. 레가토의 목표는 **해머링·풀링 음이 피킹한 음만큼 크고 고르게** 들리는 거예요.',
+    blocks: [
+      {
+        type: 'text',
+        title: '1. 해머링과 풀링',
+        body: [
+          '해머링은 손가락 끝을 프렛 바로 뒤에 **위에서 내리꽂듯**, 풀링은 그냥 떼는 게 아니라 줄을 **바닥 쪽으로 살짝 뜯으며** 떼야 소리가 나요.',
+          '쓰지 않는 줄은 오른손 손바닥과 왼손 검지 옆면으로 덮어요. 하이게인에서 레가토는 피킹이 적은 만큼 잡음이 그대로 드러나요.',
+        ],
+      },
+      {
+        type: 'scaleDrill',
+        title: '2. 3nps 레가토',
+        intro: '줄마다 피킹 한 번 + 해머링 두 번(내려올 때는 풀링 두 번). 6연음이면 한 박에 두 줄이라, 줄이 바뀌는 첫 음에만 피킹하면 박이 자연스럽게 맞아요.',
+        modes: ['aeolian', 'phrygian', 'dorian', 'ionian'],
+        defaultMode: 'aeolian',
+        defaultRoot: 4,
+        defaultLegato: true,
+        levels: SEXTUPLET_LEVELS,
+      },
+      {
+        type: 'pickingDrill',
+        title: '3. 시퀀스 레가토',
+        intro: '3음 시퀀스를 레가토로. 같은 줄에서 이어지는 음은 해머링·풀링, 줄이 바뀌면 피킹해요. 방향이 계속 바뀌어서 해머링과 풀링이 고르게 섞여요.',
+        exercise: 'sequence',
+        defaultLegato: true,
+      },
+      {
+        type: 'tips',
+        title: '연습법',
+        items: [
+          '피킹한 음과 해머링·풀링 음의 크기 차이가 들리면 느리게. 드라이브를 끄고 클린으로 들으면 차이가 잘 들려요.',
+          '풀링하고 다음 줄로 넘어갈 때 앞 줄이 울리지 않게, 방금 뗀 손가락으로 줄을 살짝 덮어요.',
+          '힘이 아니라 정확한 위치(프렛 바로 뒤)가 소리를 만들어요. 손가락이 아프면 쉬세요.',
+        ],
+      },
+    ],
   },
   {
     id: 'tapping', track: 'technique', n: 6, part: '레가토·태핑', ready: false, level: '고급',

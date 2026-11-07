@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MODES, ROOTS, TRIADS, bpmAfterLoop, degreeLabels, diatonicTriads, fretWindow, modeNoteNames, modeSemis, scaleDrillTab, sweepCycle,
-  sweepDrillTab, sweepShape, threeNpsPositions, type PatternNote, type TriadQuality,
+  MODES, PROGRESSIONS, ROOTS, TRIADS, bpmAfterLoop, chainSweeps, chromaticDrillTab, chromaticNotes, degreeLabels, diatonicTriads, fretWindow,
+  modeNoteNames, modeSemis, scaleDrillTab, sequenceDrillTab, sequenceOrder, shapeCenter, sweepCandidates, sweepCycle, sweepDrillTab, sweepShape,
+  threeNpsPositions, type PatternNote, type TriadQuality,
 } from './patterns';
 
 const STD = [40, 45, 50, 55, 59, 64];
@@ -104,6 +105,10 @@ describe('스윕 모양', () => {
     expect(s.map((n) => n.label)).toEqual(['R', '3', '5', 'R']);
   });
 
+  it('A 메이저 4줄 기본형 — 4번 줄 7, 6, 5, 1번 줄 5-9', () => {
+    expect(frets(sweepShape(STD, 4, 9, 'maj', 0)!)).toEqual([[2, 7], [3, 6], [4, 5], [5, 5], [5, 9]]);
+  });
+
   it('인버전마다 가장 낮은 음이 바뀐다', () => {
     expect(sweepShape(STD, 3, 4, 'min', 0)![0].label).toBe('R');
     expect(sweepShape(STD, 3, 4, 'min', 1)![0].label).toBe('b3');
@@ -137,6 +142,90 @@ describe('스윕 모양', () => {
         }
       }
     }
+  });
+});
+
+describe('코드 진행 따라 스윕 잇기', () => {
+  it('후보: 인버전 3개 × 두 옥타브 중 되는 자리, 기본 모양을 포함', () => {
+    const c = sweepCandidates(STD, 3, 9, 'maj');
+    expect(c.length).toBeGreaterThanOrEqual(3);
+    expect(c.map(frets)).toContainEqual(frets(sweepShape(STD, 3, 9, 'maj', 0)!));
+  });
+
+  it('E 마이너 i–VI–VII–i (3줄): 9프렛 근처에서 시작해 손이 조금씩만 움직인다', () => {
+    const em = diatonicTriads(4, 'E', 'aeolian');
+    const ch = chainSweeps(STD, 3, [0, 5, 6, 0].map((d) => em[d]))!;
+    expect(frets(ch[0])).toEqual([[3, 9], [4, 8], [5, 7], [5, 12]]);
+    expect(ch.map((s) => s[0].label)).toEqual(['R', '3', '3', 'b3']);
+  });
+
+  it('모든 키·진행·줄 수·튜닝: 빠짐없이, 흔한 모양으로, 3–16프렛 사이에서, 코드 사이 이동은 평균 4칸 이내', () => {
+    const fullLength = { 3: 4, 4: 5, 5: 7 } as const;
+    for (const strings of Object.values(TUNINGS)) {
+      for (const { pc, name } of ROOTS) {
+        for (const mode of ['aeolian', 'ionian'] as const) {
+          const triads = diatonicTriads(pc, name, mode);
+          for (const n of [3, 4, 5] as const) {
+            for (const p of PROGRESSIONS[mode]) {
+              const chords = p.degrees.map((d) => triads[d]);
+              const ch = chainSweeps(strings, n, chords);
+              expect(ch, `${name} ${mode} ${n}줄 ${p.id}`).not.toBeNull();
+              ch!.forEach((shape, i) => {
+                const pcs = TRIADS[chords[i].quality].semis.map((x) => (chords[i].root + x) % 12);
+                for (const note of shape) expect(pcs).toContain(note.midi % 12);
+                expect(shape).toHaveLength(fullLength[n]);
+                const c = shapeCenter(shape);
+                expect(c).toBeGreaterThanOrEqual(3);
+                expect(c).toBeLessThanOrEqual(16);
+                if (i) expect(Math.abs(c - shapeCenter(ch![i - 1]))).toBeLessThanOrEqual(4);
+              });
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('진행 이름의 도수는 키 안에 있다', () => {
+    for (const list of Object.values(PROGRESSIONS)) for (const p of list) for (const d of p.degrees) expect(d >= 0 && d < 7).toBe(true);
+  });
+});
+
+describe('피킹 연습', () => {
+  it('크로매틱: 줄마다 네 칸, 손가락 번호, 1프렛 아래로는 안 감', () => {
+    const n = chromaticNotes(STD, 5);
+    expect(n).toHaveLength(24);
+    expect(n.slice(0, 4).map((x) => [x.fret, x.label])).toEqual([[5, '1'], [6, '2'], [7, '3'], [8, '4']]);
+    expect(chromaticNotes(STD, 0)[0].fret).toBe(1);
+  });
+
+  it('크로매틱 타브: 올라가며 1-2-3-4, 높은 줄부터 4-3-2-1로 내려옴, 16분음표 3마디', () => {
+    const tab = chromaticDrillTab(chromaticNotes(STD, 5), opts);
+    expect(tab.measures).toHaveLength(3);
+    expect(tab.measures[0].grid).toBe(16);
+    expect(tab.measures[1].cells[8][5]).toEqual({ fret: 8 }); // 25번째 음 = 1번 줄 8프렛(4번 손가락)부터 내려옴
+    expect(tab.measures[1].cells[11][5]).toEqual({ fret: 5 });
+    expect(tab.measures[1].cells[12][4]).toEqual({ fret: 8 });
+  });
+
+  it('시퀀스 순서: 1234 2345 …, 꼭대기 묶음을 되풀이하지 않고 내려와 맨 아래 음에서 끝', () => {
+    const pos = threeNpsPositions(STD, 4, modeSemis('aeolian'))[0];
+    const seq = sequenceOrder(pos, 4);
+    expect(seq.slice(0, 8)).toEqual([pos[0], pos[1], pos[2], pos[3], pos[1], pos[2], pos[3], pos[4]]);
+    expect(seq).toHaveLength(15 * 4 + 14 * 4);
+    const top = pos.length - 1;
+    expect(seq.slice(60, 64)).toEqual([pos[top - 1], pos[top - 2], pos[top - 3], pos[top - 4]]);
+    expect(seq[seq.length - 1]).toBe(pos[0]);
+    expect(sequenceOrder(pos, 3)).toHaveLength(16 * 3 + 15 * 3);
+  });
+
+  it('시퀀스 타브: 4음은 16분음표, 3음은 6연음, 레가토면 같은 줄 이음에 해머링·풀링', () => {
+    const pos = threeNpsPositions(STD, 4, modeSemis('aeolian'))[0];
+    expect(sequenceDrillTab(pos, 4, { ...opts, legato: false }).measures[0].grid).toBe(16);
+    const t3 = sequenceDrillTab(pos, 3, { ...opts, legato: true });
+    expect(t3.measures[0].grid).toBe(24);
+    expect(t3.measures[0].cells[1][0]?.techs).toEqual(['h']);
+    expect(t3.measures[0].cells[3][0]?.techs).toEqual(['p']); // 123 다음 묶음 234의 첫 음은 같은 줄에서 내려옴
   });
 });
 

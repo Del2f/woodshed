@@ -158,66 +158,154 @@ const PREFERRED_COUNTS: Record<number, number[]> = {
   5: [2, 1, 1, 1, 2],
 };
 
+/** 한 시작 프렛에서 줄마다 1·2음 조합 중 가장 좋은 모양과 점수 (작을수록 좋음). 안 되면 null */
+function shapeAt(strings: number[], stringCount: 3 | 4 | 5, quality: TriadQuality, inversion: number, startFret: number): { notes: PatternNote[]; score: number } | null {
+  const triad = TRIADS[quality];
+  const first = strings.length - stringCount;
+  const used = strings.slice(first);
+  const pref = PREFERRED_COUNTS[stringCount];
+  if (startFret < 1) return null;
+  let best: { notes: PatternNote[]; score: number } | null = null;
+  // 줄마다 1 또는 2음 — 2^n 가지
+  for (let mask = 0; mask < 1 << stringCount; mask++) {
+    const counts = used.map((_, i) => ((mask >> i) & 1 ? 2 : 1));
+    const total = counts.reduce((a, b) => a + b, 0);
+    // 오름차순 화음 음 나열
+    const seq: { midi: number; idx: number }[] = [];
+    let midi = used[0] + startFret;
+    let idx = inversion;
+    for (let k = 0; k < total; k++) {
+      if (k) {
+        const next = (idx + 1) % 3;
+        midi += (triad.semis[next] - triad.semis[idx] + 12) % 12;
+        idx = next;
+      }
+      seq.push({ midi, idx });
+    }
+    const notes: PatternNote[] = [];
+    let k = 0;
+    counts.forEach((c, i) => {
+      for (let j = 0; j < c; j++, k++) {
+        const s = seq[k];
+        notes.push({ si: first + i, fret: s.midi - used[i], midi: s.midi, label: triad.labels[s.idx], root: s.idx === 0 });
+      }
+    });
+    const frets = notes.map((n) => n.fret);
+    const lo = Math.min(...frets);
+    const hi = Math.max(...frets);
+    if (lo < 1 || hi > 22) continue;
+    // 한 줄 안의 두 음은 2–5칸 (해머링·풀링이나 슬라이드로 닿는 거리)
+    const sameString = notes.every((n, i) => i === 0 || n.si !== notes[i - 1].si || (n.fret - notes[i - 1].fret >= 2 && n.fret - notes[i - 1].fret <= 5));
+    if (!sameString) continue;
+    const span = hi - lo;
+    if (span > 6) continue;
+    const mismatch = counts.filter((c, i) => c !== pref[i]).length;
+    // 흔한 모양 > 작은 손 벌림 > 낮은 자리
+    const score = mismatch * 10 + span + lo * 0.01;
+    if (!best || score < best.score) best = { notes, score };
+  }
+  return best;
+}
+
+/** 가장 낮은 줄에서 인버전에 맞는 음이 오는 프렛 후보 (낮은 쪽부터 두 옥타브) */
+function startFrets(strings: number[], stringCount: number, rootPc: number, quality: TriadQuality, inversion: number): number[] {
+  const low = strings[strings.length - stringCount];
+  const startPc = (rootPc + TRIADS[quality].semis[inversion]) % 12;
+  const base = (((startPc - low) % 12) + 12) % 12;
+  return [base, base + 12];
+}
+
 /**
  * 위쪽 n개 줄에서 치는 트라이어드 스윕 모양 (오름차순).
  * 줄마다 한두 음 — 흔한 모양(3줄은 1·1·2, 5줄은 2·1·1·1·2)을 우선하고, 손 벌림(가장 낮은·높은 프렛 차)이 작은 쪽을 고른다.
  * 개방현 없이(1프렛 이상) 지판 낮은 쪽에서 되는 자리를 찾는다. 안 되면 null.
  */
 export function sweepShape(strings: number[], stringCount: 3 | 4 | 5, rootPc: number, quality: TriadQuality, inversion: number): PatternNote[] | null {
-  const triad = TRIADS[quality];
-  const first = strings.length - stringCount;
-  if (first < 0) return null;
-  const used = strings.slice(first);
-  const pref = PREFERRED_COUNTS[stringCount];
-
-  // 시작 음: 가장 낮은 줄 위에서 인버전에 맞는 음, 낮은 프렛부터 두 옥타브 후보
-  const startPc = (rootPc + triad.semis[inversion]) % 12;
-  const base = (((startPc - used[0]) % 12) + 12) % 12;
-
+  if (strings.length < stringCount) return null;
   let best: { notes: PatternNote[]; score: number } | null = null;
-  for (const startFret of [base, base + 12]) {
-    if (startFret < 1) continue;
-    // 줄마다 1 또는 2음 — 2^n 가지
-    for (let mask = 0; mask < 1 << stringCount; mask++) {
-      const counts = used.map((_, i) => ((mask >> i) & 1 ? 2 : 1));
-      const total = counts.reduce((a, b) => a + b, 0);
-      // 오름차순 화음 음 나열
-      const seq: { midi: number; idx: number }[] = [];
-      let midi = used[0] + startFret;
-      let idx = inversion;
-      for (let k = 0; k < total; k++) {
-        if (k) {
-          const next = (idx + 1) % 3;
-          midi += (triad.semis[next] - triad.semis[idx] + 12) % 12;
-          idx = next;
-        }
-        seq.push({ midi, idx });
-      }
-      const notes: PatternNote[] = [];
-      let k = 0;
-      counts.forEach((c, i) => {
-        for (let j = 0; j < c; j++, k++) {
-          const s = seq[k];
-          notes.push({ si: first + i, fret: s.midi - used[i], midi: s.midi, label: triad.labels[s.idx], root: s.idx === 0 });
-        }
-      });
-      const frets = notes.map((n) => n.fret);
-      const lo = Math.min(...frets);
-      const hi = Math.max(...frets);
-      if (lo < 1 || hi > 22) continue;
-      // 한 줄 안의 두 음은 2–5칸 (해머링·풀링이나 슬라이드로 닿는 거리)
-      const sameString = notes.every((n, i) => i === 0 || n.si !== notes[i - 1].si || (n.fret - notes[i - 1].fret >= 2 && n.fret - notes[i - 1].fret <= 5));
-      if (!sameString) continue;
-      const span = hi - lo;
-      if (span > 6) continue;
-      const mismatch = counts.filter((c, i) => c !== pref[i]).length;
-      // 흔한 모양 > 작은 손 벌림 > 낮은 자리
-      const score = mismatch * 10 + span + lo * 0.01;
-      if (!best || score < best.score) best = { notes, score };
-    }
+  for (const f of startFrets(strings, stringCount, rootPc, quality, inversion)) {
+    const s = shapeAt(strings, stringCount, quality, inversion, f);
+    if (s && (!best || s.score < best.score)) best = s;
   }
   return best?.notes ?? null;
 }
+
+function scoredCandidates(strings: number[], stringCount: 3 | 4 | 5, rootPc: number, quality: TriadQuality): { notes: PatternNote[]; score: number }[] {
+  if (strings.length < stringCount) return [];
+  const out: { notes: PatternNote[]; score: number }[] = [];
+  for (const inv of [0, 1, 2]) {
+    for (const f of startFrets(strings, stringCount, rootPc, quality, inv)) {
+      const s = shapeAt(strings, stringCount, quality, inv, f);
+      if (s) out.push(s);
+    }
+  }
+  return out;
+}
+
+/** 이 코드를 칠 수 있는 모든 자리 — 인버전 3개 × 옥타브 두 곳 중 되는 것 */
+export function sweepCandidates(strings: number[], stringCount: 3 | 4 | 5, rootPc: number, quality: TriadQuality): PatternNote[][] {
+  return scoredCandidates(strings, stringCount, rootPc, quality).map((c) => c.notes);
+}
+
+/** 모양의 '손 위치' — 프렛 평균 */
+export const shapeCenter = (notes: PatternNote[]) => notes.reduce((a, n) => a + n.fret, 0) / notes.length;
+
+/** 손 위치 비용: 너무 높거나(15프렛 위) 낮은(3프렛 아래) 자리, 흔하지 않은 모양은 손해 */
+function placeCost(c: { notes: PatternNote[]; score: number }): number {
+  const center = shapeCenter(c.notes);
+  return Math.max(0, center - 15) * 1.5 + Math.max(0, 3 - center) * 1.5 + Math.floor(c.score / 10) * 3;
+}
+
+/**
+ * 코드 진행을 따라가는 스윕 모양 고르기 — 앞 코드에서 손이 가장 적게 움직이는 자리를 고른다 (비터비).
+ * 지판 가운데(3–15프렛)와 흔한 모양을 선호하고, 첫 코드는 9프렛 근처를 약간 선호한다. 칠 수 없는 코드가 있으면 null.
+ */
+export function chainSweeps(strings: number[], stringCount: 3 | 4 | 5, chords: { root: number; quality: TriadQuality }[]): PatternNote[][] | null {
+  const cands = chords.map((c) => scoredCandidates(strings, stringCount, c.root, c.quality));
+  if (!cands.length || cands.some((c) => !c.length)) return null;
+  let cost = cands[0].map((c) => Math.abs(shapeCenter(c.notes) - 9) * 0.3 + placeCost(c));
+  const back: number[][] = [];
+  for (let i = 1; i < cands.length; i++) {
+    const prev = cands[i - 1];
+    const step: number[] = [];
+    const next = cands[i].map((c) => {
+      let best = Infinity;
+      let arg = 0;
+      prev.forEach((p, j) => {
+        const v = cost[j] + Math.abs(shapeCenter(c.notes) - shapeCenter(p.notes));
+        if (v < best) (best = v), (arg = j);
+      });
+      step.push(arg);
+      return best + placeCost(c);
+    });
+    back.push(step);
+    cost = next;
+  }
+  let k = cost.indexOf(Math.min(...cost));
+  const picks = [k];
+  for (let i = back.length - 1; i >= 0; i--) {
+    k = back[i][k];
+    picks.unshift(k);
+  }
+  return picks.map((p, i) => cands[i][p].notes);
+}
+
+/** 키 안의 코드 진행 (도수 0–6). 메이저 키 / 마이너 키(에올리안) */
+export const PROGRESSIONS: Record<'ionian' | 'aeolian', { id: string; degrees: number[]; note: string }[]> = {
+  aeolian: [
+    { id: 'i-VI-VII-i', degrees: [0, 5, 6, 0], note: '가장 흔한 메탈 진행' },
+    { id: 'i-VI-III-VII', degrees: [0, 5, 2, 6], note: '서사적인 파워 메탈' },
+    { id: 'i-iv-v-i', degrees: [0, 3, 4, 0], note: '어둡고 무거운 마이너' },
+    { id: 'i-VII-VI-VII', degrees: [0, 6, 5, 6], note: '내려갔다 올라오는 리프 진행' },
+    { id: 'all', degrees: [0, 1, 2, 3, 4, 5, 6, 0], note: '키 안의 코드 7개를 차례로' },
+  ],
+  ionian: [
+    { id: 'I-V-vi-IV', degrees: [0, 4, 5, 3], note: '밝은 팝·멜로딕 진행' },
+    { id: 'I-IV-V-I', degrees: [0, 3, 4, 0], note: '가장 기본적인 메이저 진행' },
+    { id: 'vi-IV-I-V', degrees: [5, 3, 0, 4], note: '마이너 느낌으로 시작하는 메이저' },
+    { id: 'all', degrees: [0, 1, 2, 3, 4, 5, 6, 0], note: '키 안의 코드 7개를 차례로' },
+  ],
+};
 
 /** 키 안의 트라이어드 7개 (메이저 키 또는 마이너 키 = 에올리안) */
 export function diatonicTriads(rootPc: number, rootName: string, mode: 'ionian' | 'aeolian'): { root: number; name: string; quality: TriadQuality; roman: string }[] {
@@ -305,6 +393,41 @@ export function sweepDrillTab(shapes: PatternNote[][], opts: DrillTabOptions): T
     return fillTab(seq.slice(0, grid), grid, opts, true).measures[0];
   });
   return { ...fillTab([], 24, opts, false), measures };
+}
+
+// ── 피킹 연습 ─────────────────────────
+
+/** 크로매틱 1-2-3-4: 줄마다 startFret부터 네 칸, 손가락 하나에 한 프렛 (표시는 손가락 번호) */
+export function chromaticNotes(strings: number[], startFret: number): PatternNote[] {
+  const f0 = Math.max(1, startFret);
+  return strings.flatMap((open, si) =>
+    [0, 1, 2, 3].map((k) => ({ si, fret: f0 + k, midi: open + f0 + k, label: String(k + 1), root: false })),
+  );
+}
+
+/** 올라갈 때는 줄마다 1-2-3-4, 내려올 때는 높은 줄부터 4-3-2-1. 16분음표 */
+export function chromaticDrillTab(notes: PatternNote[], opts: DrillTabOptions): TabData {
+  const strings = [...new Set(notes.map((n) => n.si))].sort((a, b) => a - b);
+  const on = (si: number) => notes.filter((n) => n.si === si);
+  const up = strings.flatMap(on);
+  const down = [...strings].reverse().flatMap((si) => on(si).reverse());
+  return fillTab([...up, ...down], 16, opts, false);
+}
+
+/**
+ * 스케일 시퀀스: group음씩 묶어 한 음씩 밀어 올라가고(1234 2345 …), 꼭대기에서 같은 방식으로 내려온다.
+ * 내려올 때 첫 묶음은 올라간 마지막 묶음과 같은 음을 되풀이하므로 건너뛴다.
+ */
+export function sequenceOrder(notes: PatternNote[], group: 3 | 4): PatternNote[] {
+  const groups = (arr: PatternNote[]) => Array.from({ length: arr.length - group + 1 }, (_, i) => arr.slice(i, i + group));
+  const up = groups(notes);
+  const down = groups([...notes].reverse()).slice(1);
+  return [...up, ...down].flat();
+}
+
+/** 4음 묶음은 16분음표(한 박에 한 묶음), 3음 묶음은 6연음(한 박에 두 묶음) */
+export function sequenceDrillTab(notes: PatternNote[], group: 3 | 4, opts: DrillTabOptions & { legato: boolean }): TabData {
+  return fillTab(sequenceOrder(notes, group), group === 4 ? 16 : 24, opts, opts.legato);
 }
 
 // ── 자동 BPM 올리기 ───────────────────────

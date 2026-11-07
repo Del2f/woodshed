@@ -13,8 +13,9 @@ import { TabPlayer } from '../tab/synth';
 import type { BpmLevels } from './curriculum';
 import { NoteBoard, spotKey, type BoardDot } from './NoteBoard';
 import {
-  INVERSIONS, MODES, ROOTS, TRIADS, bpmAfterLoop, degreeLabels, diatonicTriads, fretWindow, modeById, modeNoteNames, modeSemis,
-  scaleDrillTab, sweepDrillTab, sweepShape, threeNpsPositions, type BpmStepConfig, type ModeId, type PatternNote,
+  INVERSIONS, MODES, PROGRESSIONS, ROOTS, TRIADS, bpmAfterLoop, chainSweeps, chromaticDrillTab, chromaticNotes, degreeLabels, diatonicTriads,
+  fretWindow, modeById, modeNoteNames, modeSemis, scaleDrillTab, sequenceDrillTab, sweepDrillTab, sweepShape, threeNpsPositions,
+  type BpmStepConfig, type ModeId, type PatternNote,
 } from './patterns';
 
 const BASE_BPM = 60;
@@ -41,6 +42,10 @@ interface DrillCardProps {
   /** 드론으로 울릴 근음 (MIDI). 없으면 드론 스위치를 숨긴다 */
   droneMidi?: number | null;
   droneDefault?: boolean;
+  /** 마디마다 모양이 다른 연습(코드 진행·인버전 이어 치기): 지판은 지금 치는 마디의 모양을 보여 준다 */
+  notesByMeasure?: PatternNote[][];
+  /** 마디 고르기 단추 이름 (notesByMeasure와 같은 길이) */
+  measureLabels?: string[];
   /** 패턴 고르는 컨트롤 (지판 위) */
   children?: ReactNode;
 }
@@ -49,16 +54,10 @@ interface DrillCardProps {
  * 연습 카드: 패턴 고르기 → 지판·타브 → 듣기(메트로놈·드론·자동 BPM 올리기) → 연습 목록에 추가.
  * 연습 목록에 넣으면 릭 보관함에 들어가 복습 일정·BPM 기록이 쌓인다.
  */
-export function DrillCard({ lessonId, drillKey, strings, tuningLabel, notes, tab, lickTitle, tags, memo, levels, droneMidi, droneDefault, children }: DrillCardProps) {
+export function DrillCard({
+  lessonId, drillKey, strings, tuningLabel, notes, tab, lickTitle, tags, memo, levels, droneMidi, droneDefault, notesByMeasure, measureLabels, children,
+}: DrillCardProps) {
   const { store, version, bump } = useStore();
-
-  // ── 지판 ──
-  const win = fretWindow(notes);
-  const dots = useMemo(() => {
-    const m = new Map<string, BoardDot>();
-    for (const n of notes) m.set(spotKey(n), { text: n.label, kind: n.root ? 'root' : 'note' });
-    return m;
-  }, [notes]);
 
   // ── 재생 ──
   const player = useRef<TabPlayer | null>(null);
@@ -123,6 +122,19 @@ export function DrillCard({ lessonId, drillKey, strings, tuningLabel, notes, tab
     if (playingRef.current) startRef.current();
   }, [tab, click, drive, drone]);
 
+  // ── 지판: 마디마다 모양이 다르면 재생 중엔 지금 마디, 멈췄을 땐 고른 마디 ──
+  const [shownBar, setShownBar] = useState(0);
+  useEffect(() => setShownBar(0), [notesByMeasure]);
+  const bar = notesByMeasure ? Math.min(notesByMeasure.length - 1, playing && pos ? pos.m : shownBar) : 0;
+  const shown = notesByMeasure ? notesByMeasure[bar] : notes;
+  // 범위는 전체 모양 기준으로 고정 — 마디가 바뀔 때 지판이 흔들리지 않게
+  const win = fretWindow(notes);
+  const dots = useMemo(() => {
+    const m = new Map<string, BoardDot>();
+    for (const n of shown) m.set(spotKey(n), { text: n.label, kind: n.root ? 'root' : 'note' });
+    return m;
+  }, [shown]);
+
   const changeBpm = (v: number) => {
     const next = clampBpm(v);
     bpmRef.current = next;
@@ -164,6 +176,15 @@ export function DrillCard({ lessonId, drillKey, strings, tuningLabel, notes, tab
     <div className="drill">
       {children && <div className="drill-pick">{children}</div>}
 
+      {notesByMeasure && measureLabels && (
+        <div className="chips" style={{ gap: 6 }} role="group" aria-label="지판에 보일 마디">
+          {measureLabels.map((label, i) => (
+            <button key={i} type="button" className="tag-chip" aria-pressed={i === bar} onClick={() => setShownBar(i)} disabled={playing}>
+              <span className="mono">{i + 1}</span> {label}
+            </button>
+          ))}
+        </div>
+      )}
       <NoteBoard strings={strings} frets={win.count} startFret={win.start} dots={dots} label={`${lickTitle} 지판 모양`} />
       <TabStaff tab={tab} playing={pos} />
 
@@ -246,7 +267,7 @@ export function DrillCard({ lessonId, drillKey, strings, tuningLabel, notes, tab
 // ── 3nps 스케일·모드 ─────────────────────
 
 export function ScaleDrill({
-  lessonId, strings, tuningLabel, modes, defaultMode, defaultRoot, drone, levels,
+  lessonId, strings, tuningLabel, modes, defaultMode, defaultRoot, drone, defaultLegato, levels,
 }: {
   lessonId: string;
   strings: number[];
@@ -255,12 +276,13 @@ export function ScaleDrill({
   defaultMode: ModeId;
   defaultRoot: number;
   drone?: boolean;
+  defaultLegato?: boolean;
   levels: BpmLevels;
 }) {
   const [root, setRoot] = useState(defaultRoot);
   const [mode, setMode] = useState<ModeId>(defaultMode);
   const [posIdx, setPosIdx] = useState(0);
-  const [legato, setLegato] = useState(false);
+  const [legato, setLegato] = useState(!!defaultLegato);
 
   const rootName = NOTE_NAMES[root];
   const semis = useMemo(() => modeSemis(mode), [mode]);
@@ -435,10 +457,244 @@ export function SweepDrill({
       tab={tab}
       lickTitle={title}
       tags={['스윕', '아르페지오']}
+      notesByMeasure={inv === 'all' ? shapes : undefined}
+      measureLabels={inv === 'all' ? shapes.map((sh) => `${chord.name} ${INVERSIONS[[0, 1, 2].find((i) => TRIADS[chord.quality].labels[i] === sh[0].label) ?? 0].label}`) : undefined}
       memo={`커리큘럼 연습: ${keyName} 키의 ${chord.roman} ${chord.name}, ${invLabel}.\n올라갈 때 다운 스윕, 내려올 때 업 스윕. 맨 위 줄 두 음은 해머링·풀링.\n목표: 입문 ${levels.beginner} · 중급 ${levels.intermediate} · 고급 ${levels.advanced} BPM (${levels.unit})`}
       levels={levels}
     >
       {picker}
+    </DrillCard>
+  );
+}
+
+// ── 코드 진행 따라 스윕 ────────────────────
+
+export function SweepProgressionDrill({
+  lessonId, strings, tuningLabel, defaultRoot, defaultKeyMode, levels,
+}: {
+  lessonId: string;
+  strings: number[];
+  tuningLabel: string;
+  defaultRoot: number;
+  defaultKeyMode: 'ionian' | 'aeolian';
+  levels: BpmLevels;
+}) {
+  const [keyRoot, setKeyRoot] = useState(defaultRoot);
+  const [keyMode, setKeyMode] = useState(defaultKeyMode);
+  const [stringCount, setStringCount] = useState<3 | 4 | 5>(3);
+  const [progId, setProgId] = useState(PROGRESSIONS[defaultKeyMode][0].id);
+
+  const progs = PROGRESSIONS[keyMode];
+  const prog = progs.find((p) => p.id === progId) ?? progs[0];
+  const triads = useMemo(() => diatonicTriads(keyRoot, NOTE_NAMES[keyRoot], keyMode), [keyRoot, keyMode]);
+  const chords = useMemo(() => prog.degrees.map((d) => triads[d]), [prog, triads]);
+  const shapes = useMemo(() => chainSweeps(strings, stringCount, chords), [strings, stringCount, chords]);
+  const notes = useMemo(() => shapes?.flat() ?? [], [shapes]);
+  const tab = useMemo(() => (shapes ? sweepDrillTab(shapes, { strings, tuningLabel, bpm: BASE_BPM }) : null), [shapes, strings, tuningLabel]);
+
+  const keyName = `${NOTE_NAMES[keyRoot]}${keyMode === 'aeolian' ? ' 마이너' : ' 메이저'}`;
+  const romanOf = (degrees: number[]) => degrees.map((d) => triads[d].roman).join('–');
+  const names = chords.map((c) => c.name).join(' – ');
+
+  const picker = (
+    <>
+      <div className="drill-row">
+        <label className="field">
+          <span>키</span>
+          <select className="select" value={keyRoot} onChange={(e) => setKeyRoot(Number(e.target.value))}>
+            {ROOTS.map((r) => (
+              <option key={r.pc} value={r.pc}>{r.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>메이저 / 마이너</span>
+          <Segmented
+            label="키 종류"
+            value={keyMode}
+            onChange={(m) => {
+              setKeyMode(m);
+              setProgId(PROGRESSIONS[m][0].id);
+            }}
+            options={[{ value: 'aeolian', label: '마이너' }, { value: 'ionian', label: '메이저' }]}
+          />
+        </label>
+        <label className="field">
+          <span>줄 수</span>
+          <Segmented label="줄 수" value={stringCount} onChange={setStringCount} options={[3, 4, 5].map((n) => ({ value: n as 3 | 4 | 5, label: `${n}줄` }))} />
+        </label>
+      </div>
+      <div className="field">
+        <span>진행</span>
+        <div className="chips" style={{ gap: 6 }} role="group" aria-label="코드 진행">
+          {progs.map((p) => (
+            <button key={p.id} type="button" className="tag-chip" aria-pressed={p.id === prog.id} onClick={() => setProgId(p.id)} title={p.note}>
+              {p.id === 'all' ? '순서대로 7개' : <span className="mono">{romanOf(p.degrees)}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="muted" style={{ margin: 0 }}>
+        <b style={{ color: 'var(--text)' }}>{names}</b> ({keyName}, {prog.note}) · 코드마다 한 마디, 앞 코드와 가장 가까운 자리로 이어요.
+      </p>
+    </>
+  );
+
+  if (!shapes || !tab) {
+    return (
+      <div className="drill">
+        <div className="drill-pick">{picker}</div>
+        <p className="muted">이 튜닝에서는 이 진행을 이을 자리를 찾지 못했어요. 줄 수를 바꿔 보세요.</p>
+      </div>
+    );
+  }
+
+  const label = prog.id === 'all' ? '키 안의 코드 7개' : romanOf(prog.degrees);
+  return (
+    <DrillCard
+      lessonId={lessonId}
+      drillKey={`prog${stringCount}:${keyRoot}:${keyMode}:${prog.id}:${tuningLabel}`}
+      strings={strings}
+      tuningLabel={tuningLabel}
+      notes={notes}
+      tab={tab}
+      lickTitle={`${keyName} ${label} 스윕 ${stringCount}줄`}
+      tags={['스윕', '아르페지오', '코드 진행']}
+      notesByMeasure={shapes}
+      measureLabels={chords.map((c) => c.name)}
+      memo={`커리큘럼 연습: ${keyName} 키 ${label} (${names}), ${stringCount}줄 스윕을 코드마다 한 마디씩.\n앞 코드와 가장 가까운 인버전으로 이어서 손 이동을 최소로.\n목표: 입문 ${levels.beginner} · 중급 ${levels.intermediate} · 고급 ${levels.advanced} BPM (${levels.unit})`}
+      levels={levels}
+    >
+      {picker}
+    </DrillCard>
+  );
+}
+
+// ── 피킹: 크로매틱 · 스케일 시퀀스 ─────────────
+
+const SIXTEENTH_LEVELS: BpmLevels = { beginner: 80, intermediate: 120, advanced: 160, unit: '16분음표' };
+const SEXTUPLET_LEVELS: BpmLevels = { beginner: 60, intermediate: 90, advanced: 120, unit: '6연음' };
+
+export function PickingDrill({
+  lessonId, strings, tuningLabel, exercise, defaultLegato, defaultRoot = 4, defaultMode = 'aeolian', modes = ['aeolian', 'phrygian', 'ionian', 'dorian'],
+}: {
+  lessonId: string;
+  strings: number[];
+  tuningLabel: string;
+  exercise: 'chromatic' | 'sequence';
+  defaultLegato?: boolean;
+  defaultRoot?: number;
+  defaultMode?: ModeId;
+  modes?: ModeId[];
+}) {
+  // 크로매틱
+  const [startFret, setStartFret] = useState(5);
+  // 시퀀스
+  const [root, setRoot] = useState(defaultRoot);
+  const [mode, setMode] = useState<ModeId>(defaultMode);
+  const [posIdx, setPosIdx] = useState(0);
+  const [group, setGroup] = useState<3 | 4>(defaultLegato ? 3 : 4);
+  const [legato, setLegato] = useState(!!defaultLegato);
+
+  const positions = useMemo(() => threeNpsPositions(strings, root, modeSemis(mode)), [strings, root, mode]);
+  const pos = positions[Math.min(posIdx, positions.length - 1)];
+  const notes = useMemo(() => (exercise === 'chromatic' ? chromaticNotes(strings, startFret) : pos), [exercise, strings, startFret, pos]);
+  const tab = useMemo(
+    () =>
+      exercise === 'chromatic'
+        ? chromaticDrillTab(notes, { strings, tuningLabel, bpm: BASE_BPM })
+        : sequenceDrillTab(notes, group, { strings, tuningLabel, bpm: BASE_BPM, legato }),
+    [exercise, notes, strings, tuningLabel, group, legato],
+  );
+
+  if (exercise === 'chromatic') {
+    return (
+      <DrillCard
+        lessonId={lessonId}
+        drillKey={`chromatic:${startFret}:${tuningLabel}`}
+        strings={strings}
+        tuningLabel={tuningLabel}
+        notes={notes}
+        tab={tab}
+        lickTitle={`크로매틱 1-2-3-4 · ${startFret}프렛`}
+        tags={['얼터네이트 피킹', '손 풀기']}
+        memo={`커리큘럼 연습: 크로매틱 1-2-3-4, ${startFret}프렛부터. 손가락 하나에 한 프렛, 다운–업을 끊지 않고.\n목표: 입문 ${SIXTEENTH_LEVELS.beginner} · 중급 ${SIXTEENTH_LEVELS.intermediate} · 고급 ${SIXTEENTH_LEVELS.advanced} BPM (16분음표)`}
+        levels={SIXTEENTH_LEVELS}
+      >
+        <div className="field">
+          <span>시작 프렛 (1번 손가락)</span>
+          <div className="chips" style={{ gap: 6 }} role="group" aria-label="시작 프렛">
+            {[1, 3, 5, 7, 9, 12].map((f) => (
+              <button key={f} type="button" className="tag-chip" aria-pressed={f === startFret} onClick={() => setStartFret(f)}>
+                {f}프렛
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="muted" style={{ margin: 0 }}>지판 점의 숫자가 왼손 손가락 번호예요 (1 검지 · 2 중지 · 3 약지 · 4 새끼). 낮은 프렛일수록 손을 넓게 벌려야 해요.</p>
+      </DrillCard>
+    );
+  }
+
+  const info = modeById(mode);
+  const rootName = NOTE_NAMES[root];
+  const levels = group === 4 ? SIXTEENTH_LEVELS : SEXTUPLET_LEVELS;
+  const title = `${rootName} ${info.name} ${group}음 시퀀스 · 포지션 ${posIdx + 1}${legato ? ' (레가토)' : ''}`;
+  return (
+    <DrillCard
+      lessonId={lessonId}
+      drillKey={`seq${group}:${mode}:${root}:${posIdx}:${legato ? 'legato' : 'alt'}:${tuningLabel}`}
+      strings={strings}
+      tuningLabel={tuningLabel}
+      notes={notes}
+      tab={tab}
+      lickTitle={title}
+      tags={['시퀀스', '3nps', info.name, legato ? '레가토' : '얼터네이트 피킹']}
+      memo={`커리큘럼 연습: ${rootName} ${info.name} 3nps 포지션 ${posIdx + 1}을 ${group}음씩 묶어 한 음씩 밀어 오르내리기.\n${legato ? '같은 줄에서 이어지는 음은 해머링·풀링, 줄이 바뀌면 피킹.' : '모든 음을 다운–업 번갈아.'}\n목표: 입문 ${levels.beginner} · 중급 ${levels.intermediate} · 고급 ${levels.advanced} BPM (${levels.unit})`}
+      levels={levels}
+    >
+      <div className="drill-row">
+        <label className="field">
+          <span>근음</span>
+          <select className="select" value={root} onChange={(e) => setRoot(Number(e.target.value))}>
+            {ROOTS.map((r) => (
+              <option key={r.pc} value={r.pc}>{r.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>모드</span>
+          <select className="select" value={mode} onChange={(e) => setMode(e.target.value as ModeId)}>
+            {modes.map((id) => {
+              const m = modeById(id);
+              return (
+                <option key={id} value={id}>{m.name}{m.alias ? ` (${m.alias})` : ''}</option>
+              );
+            })}
+          </select>
+        </label>
+        <label className="field">
+          <span>묶음</span>
+          <Segmented label="묶음" value={group} onChange={setGroup} options={[{ value: 4 as const, label: '4음 · 16분' }, { value: 3 as const, label: '3음 · 6연음' }]} />
+        </label>
+        <label className="field">
+          <span>피킹</span>
+          <Segmented label="피킹 방식" value={legato ? 'legato' : 'alt'} onChange={(v) => setLegato(v === 'legato')} options={[{ value: 'alt', label: '얼터네이트' }, { value: 'legato', label: '레가토' }]} />
+        </label>
+      </div>
+      <div className="field">
+        <span>포지션 (지판 낮은 쪽부터)</span>
+        <div className="chips" style={{ gap: 6 }} role="group" aria-label="포지션">
+          {positions.map((p, i) => (
+            <button key={i} type="button" className="tag-chip" aria-pressed={i === posIdx} onClick={() => setPosIdx(i)} title={`${p[0].fret}프렛, ${p[0].label}부터`}>
+              {i + 1} · {p[0].fret}프렛
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="muted" style={{ margin: 0 }}>
+        {group === 4 ? '1234 · 2345 · 3456 …' : '123 · 234 · 345 …'} 한 음씩 밀어 올라갔다가 같은 방식으로 내려와요. 묶음의 첫 음이 박의 시작이에요.
+      </p>
     </DrillCard>
   );
 }

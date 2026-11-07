@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import type { LessonBlock } from './curriculum';
-import { ModeTable, ScaleDrill, SweepDrill } from './Drills';
+import { ModeTable, PickingDrill, ScaleDrill, SweepDrill, SweepProgressionDrill } from './Drills';
 
 /** 글 안의 **굵게** → <b> */
 export function rich(text: string): ReactNode {
@@ -42,6 +42,7 @@ export function LessonBlocks({ lessonId, blocks, strings, tuningLabel }: { lesso
               defaultMode={b.defaultMode}
               defaultRoot={b.defaultRoot}
               drone={b.drone}
+              defaultLegato={b.defaultLegato}
               levels={b.levels}
             />
           )}
@@ -54,6 +55,27 @@ export function LessonBlocks({ lessonId, blocks, strings, tuningLabel }: { lesso
               defaultRoot={b.defaultRoot}
               defaultKeyMode={b.defaultKeyMode}
               levels={b.levels}
+            />
+          )}
+          {b.type === 'sweepProgression' && (
+            <SweepProgressionDrill
+              lessonId={lessonId}
+              strings={strings}
+              tuningLabel={tuningLabel}
+              defaultRoot={b.defaultRoot}
+              defaultKeyMode={b.defaultKeyMode}
+              levels={b.levels}
+            />
+          )}
+          {b.type === 'pickingDrill' && (
+            <PickingDrill
+              lessonId={lessonId}
+              strings={strings}
+              tuningLabel={tuningLabel}
+              exercise={b.exercise}
+              defaultLegato={b.defaultLegato}
+              modes={b.modes}
+              defaultMode={b.defaultMode}
             />
           )}
         </section>
