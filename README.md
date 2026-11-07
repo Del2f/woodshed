@@ -151,7 +151,7 @@ Supabase를 연결하지 않아도 바로 쓸 수 있습니다. 이때는 **로�
 ### Supabase 연결 (영구 저장)
 
 1. [supabase.com](https://supabase.com)에서 새 프로젝트를 만듭니다. 무료 플랜이면 충분합니다.
-2. **SQL Editor**에서 [`supabase/migrations/`](supabase/migrations/)의 SQL을 번호 순서대로 실행합니다 (`0001_init.sql`, `0002_analyses.sql`, `0003_licks.sql`, `0004_quiz_results.sql`).
+2. **SQL Editor**에서 [`supabase/migrations/`](supabase/migrations/)의 SQL을 번호 순서대로 실행합니다 (`0001_init.sql`, `0002_analyses.sql`, `0003_licks.sql`, `0004_quiz_results.sql`, `0005_keepalive.sql`).
 3. **Authentication → URL Configuration**
    - Site URL: 배포 주소 (예: `https://del2f.github.io/woodshed/`)
    - Redirect URLs에 `http://localhost:5173/**` 와 배포 주소를 추가합니다.
@@ -167,7 +167,7 @@ Supabase를 연결하지 않아도 바로 쓸 수 있습니다. 이때는 **로�
 2. **Settings → Secrets and variables → Actions → Variables**에 `SUPABASE_URL`, `SUPABASE_ANON_KEY`를 등록합니다.
 3. `main`에 push 하면 테스트·빌드·배포가 자동으로 실행됩니다. `engine/`이 바뀌면 엔진 테스트도 돕니다.
 
-**Supabase 휴면 방지:** 무료 플랜은 7일 동안 요청이 없으면 일시정지됩니다. [`supabase-keepalive.yml`](.github/workflows/supabase-keepalive.yml)이 3일마다, 백업 저장소가 매주 요청을 보내 깨워 둡니다. GitHub은 60일 동안 커밋이 없으면 예약 워크플로를 끄므로 가끔 Actions 탭을 확인하세요.
+**Supabase 휴면 방지:** 무료 플랜은 7일 동안 요청이 없으면 일시정지됩니다. [`supabase-keepalive.yml`](.github/workflows/supabase-keepalive.yml)이 매일 `keepalive_ping()`으로 한 줄을 써서 깨워 둡니다(읽기만 하는 핑으로는 2026-11 초에 일시정지됨). 실패하면 GitHub이 메일로 알려 줍니다. GitHub은 60일 동안 커밋이 없으면 예약 워크플로를 끄므로 가끔 Actions 탭을 확인하세요.
 
 ### 구조
 

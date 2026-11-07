@@ -1,9 +1,10 @@
 name: Supabase keep-alive
 
-# 무료 플랜은 7일 동안 요청이 없으면 일시정지된다. 3일마다 가볍게 한 번 깨워 둔다.
+# 무료 플랜은 활동이 없으면 일시정지된다. 3일마다 읽기만 하던 핑으로는 2026-11 초에 멈췄으므로,
+# 매일 한 번 keepalive_ping() 함수(0005_keepalive.sql)로 실제로 한 줄을 써서 활동을 남긴다.
 on:
   schedule:
-    - cron: '17 3 */3 * *'
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -13,11 +14,17 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ vars.SUPABASE_URL != '' }}
     steps:
-      - name: Ping REST API
+      - name: Write a heartbeat
         env:
           URL: ${{ vars.SUPABASE_URL }}
           KEY: ${{ vars.SUPABASE_ANON_KEY }}
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/rest/v1/songs?select=id&limit=1" -H "apikey: $KEY")
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/rest/v1/rpc/keepalive_ping" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{}')
+          if [ "$code" = "404" ]; then
+            echo "::warning::keepalive_ping 함수가 없어요 — supabase/migrations/0005_keepalive.sql 을 SQL Editor에서 실행하세요. 이번에는 읽기로 대신해요"
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/rest/v1/songs?select=id&limit=1" -H "apikey: $KEY")
+          fi
           echo "HTTP $code"
-          test "$code" -lt 500
+          # 일시정지 등으로 실패하면 빨간불이 켜지고 GitHub이 메일로 알려 준다
+          test "$code" -ge 200 && test "$code" -lt 300
